@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { PencilSimple, Trash } from 'phosphor-react-native';
@@ -9,6 +10,7 @@ import * as WireGuard from '../native/WireGuard';
 type Props = NativeStackScreenProps<RootStackParamList, 'TunnelDetail'>;
 
 export default function TunnelDetailScreen({ navigation, route }: Props) {
+  const insets = useSafeAreaInsets();
   const { tunnel } = route.params;
   const [stats, setStats] = useState(tunnel.stats ?? { rxMiB: 0, txMiB: 0 });
   useEffect(() => {
@@ -71,7 +73,12 @@ export default function TunnelDetailScreen({ navigation, route }: Props) {
   }, [navigation, tunnel]);
 
   return (
-    <View style={styles.container}>
+    // ScrollView e nao View: o conteudo tem altura variavel (um card por peer) e
+    // com 2+ peers o card de Estatisticas ficava fora da tela, sem rolagem.
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ padding: 12, paddingBottom: 12 + insets.bottom + 16 }}
+    >
       <View style={styles.card}>
         <Text style={styles.title}>Interface</Text>
         <Text style={styles.label}>Nome</Text>
@@ -120,12 +127,12 @@ export default function TunnelDetailScreen({ navigation, route }: Props) {
           <Text>rx: {stats.rxMiB.toFixed(2)} MiB, tx: {stats.txMiB.toFixed(2)} MiB</Text>
         </View>
       ) : null}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 12 },
+  container: { flex: 1 }, // o padding migrou para o contentContainerStyle
   card: { backgroundColor: '#fff', borderRadius: 8, padding: 12, marginBottom: 12, elevation: 2 },
   title: { fontWeight: '600', marginBottom: 8 },
   label: { marginTop: 6, color: '#666', fontSize: 12 },

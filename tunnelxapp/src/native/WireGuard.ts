@@ -3,7 +3,14 @@ import { NativeModules, NativeEventEmitter } from 'react-native';
 type ApplyConfigParams = {
   id: string;
   name: string;
-  conf: string; // full WireGuard .conf text
+  conf: string; // texto completo do .conf do WireGuard
+};
+
+export type VpnState = 'connected' | 'disconnected' | 'error';
+export type VpnStatusEvent = {
+  state: VpnState;
+  tunnelId: string | null;
+  message: string | null;
 };
 
 type WireGuardModuleType = {
@@ -13,6 +20,7 @@ type WireGuardModuleType = {
   status: (id: string) => Promise<'up' | 'down' | 'unknown'>;
   prepareVpn?: () => Promise<boolean>;
   isConnected?: () => Promise<boolean>;
+  getVpnState?: () => Promise<{ connected: boolean; tunnelId: string | null }>;
 };
 
 const NativeWireGuard: WireGuardModuleType | undefined =
@@ -20,22 +28,38 @@ const NativeWireGuard: WireGuardModuleType | undefined =
 
 const emitter = new NativeEventEmitter((NativeModules as any)?.WireGuardModule);
 export const STATUS_EVENT = 'TunnelXVpnStatus';
-let jsListeners = new Set<(status: 'connected' | 'disconnected') => void>();
-let lastStatus: 'connected' | 'disconnected' | null = null;
+
+/** O nativo passou a emitir um objeto; strings antigas continuam aceitas. */
+function normalize(raw: any): VpnStatusEvent {
+  if (typeof raw === 'string') {
+    return { state: raw as VpnState, tunnelId: null, message: null };
+  }
+  return {
+    state: (raw?.state ?? 'disconnected') as VpnState,
+    tunnelId: raw?.tunnelId ?? null,
+    message: raw?.message ?? null,
+  };
+}
+
+// Fallback por polling apenas quando o modulo nativo nao existe (ex.: iOS ainda nao portado).
+let jsListeners = new Set<(e: VpnStatusEvent) => void>();
+let lastStatus: VpnState | null = null;
 let pollTimer: any = null;
+
 function startJsPolling() {
   if (pollTimer) return;
   pollTimer = setInterval(async () => {
     try {
       const ok = await isConnected();
-      const mapped: 'connected' | 'disconnected' = ok ? 'connected' : 'disconnected';
+      const mapped: VpnState = ok ? 'connected' : 'disconnected';
       if (mapped !== lastStatus) {
         lastStatus = mapped;
-        jsListeners.forEach(l => l(mapped));
+        jsListeners.forEach(l => l({ state: mapped, tunnelId: null, message: null }));
       }
     } catch {}
   }, 1500);
 }
+
 function stopJsPolling() {
   if (pollTimer) {
     clearInterval(pollTimer);
@@ -43,9 +67,10 @@ function stopJsPolling() {
     lastStatus = null;
   }
 }
-export function subscribeStatus(listener: (status: 'connected' | 'disconnected') => void) {
+
+export function subscribeStatus(listener: (e: VpnStatusEvent) => void) {
   if (isNativeAvailable()) {
-    return emitter.addListener(STATUS_EVENT, listener);
+    return emitter.addListener(STATUS_EVENT, (raw: any) => listener(normalize(raw)));
   }
   jsListeners.add(listener);
   startJsPolling();
@@ -67,6 +92,7 @@ export async function start(id: string): Promise<void> {
   return NativeWireGuard.start(id);
 }
 
+/** So resolve apos o teardown ter sido VERIFICADO no nativo; rejeita se o tunel seguir de pe. */
 export async function stop(id: string): Promise<void> {
   if (!NativeWireGuard) throw new Error('WireGuard native module not linked');
   return NativeWireGuard.stop(id);
@@ -83,10 +109,17 @@ export async function isConnected(): Promise<boolean> {
   return st === 'up';
 }
 
+/** Estado real do backend — usar para reconciliar a UI em vez de confiar no disco. */
+export async function getVpnState(): Promise<{ connected: boolean; tunnelId: string | null }> {
+  if (NativeWireGuard?.getVpnState) return NativeWireGuard.getVpnState();
+  return { connected: await isConnected(), tunnelId: null };
+}
+
 export function isNativeAvailable(): boolean {
   return !!NativeWireGuard;
 }
 
+/** Agora reflete a resposta REAL do dialogo do Android (antes retornava true sempre). */
 export async function prepareVpn(): Promise<boolean> {
   if (!NativeWireGuard || !NativeWireGuard.prepareVpn) return true;
   return NativeWireGuard.prepareVpn();

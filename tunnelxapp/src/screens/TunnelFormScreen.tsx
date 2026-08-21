@@ -4,10 +4,12 @@ import type { Tunnel, Peer } from '../models/Tunnel';
 import { upsertTunnel } from '../storage/tunnels';
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TunnelForm'>;
 
 export default function TunnelFormScreen({ navigation, route }: Props) {
+  const insets = useSafeAreaInsets();
   const editing: Tunnel | undefined = route?.params?.tunnel;
   const [name, setName] = useState(editing?.name ?? '');
   const [privKey, setPrivKey] = useState(editing?.interface.privateKey ?? '');
@@ -43,7 +45,11 @@ export default function TunnelFormScreen({ navigation, route }: Props) {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 12 }}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ padding: 12, paddingBottom: 12 + insets.bottom + 16 }}
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={styles.card}>
         <Text style={styles.title}>Interface</Text>
         <TextInput style={styles.input} placeholder="Nome" value={name} onChangeText={setName} />

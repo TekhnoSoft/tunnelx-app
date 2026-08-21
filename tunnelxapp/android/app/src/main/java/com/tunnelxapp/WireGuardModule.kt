@@ -1,5 +1,6 @@
 package com.tunnelxapp
 
+import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
 import android.util.Log
@@ -14,11 +15,39 @@ import com.wireguard.config.Peer
 import com.wireguard.config.InetNetwork
 import com.wireguard.config.InetEndpoint
 
-class WireGuardModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+class WireGuardModule(private val reactContext: ReactApplicationContext) :
+  ReactContextBaseJavaModule(reactContext), ActivityEventListener {
   companion object {
     private const val TAG = "WireGuardModule"
+    private const val REQ_PREPARE = 10001
   }
+
+  @Volatile private var preparePromise: Promise? = null
+
+  init {
+    VpnStatus.attach(reactContext)
+    reactContext.addActivityEventListener(this)
+  }
+
   override fun getName(): String = "WireGuardModule"
+
+  // Exigidos pelo NativeEventEmitter do lado JS; sem eles o RN avisa e, sob
+  // TurboModules, a assinatura do modulo pode falhar.
+  @ReactMethod fun addListener(eventName: String) { /* no-op: quem emite e o VpnStatus */ }
+  @ReactMethod fun removeListeners(count: Int) { /* no-op */ }
+
+  // A permissao de VPN agora e resolvida pelo resultado REAL do dialogo, nao chutada.
+  override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
+    if (requestCode != REQ_PREPARE) return
+    val p = preparePromise
+    preparePromise = null
+    val granted = resultCode == Activity.RESULT_OK
+    Log.i(TAG, "onActivityResult: prepare granted=$granted")
+    if (!granted) VpnStatus.emit("error", null, "Permissao de VPN negada pelo usuario")
+    p?.resolve(granted)
+  }
+
+  override fun onNewIntent(intent: Intent) { /* no-op */ }
 
   @ReactMethod
   fun applyConfig(params: ReadableMap, promise: Promise) {
@@ -62,23 +91,21 @@ class WireGuardModule(private val reactContext: ReactApplicationContext) : React
         return
       }
 
-      val app = reactContext.applicationContext as android.app.Application
-      val backend = GoBackend(app)
-      val tunnel = WgTunnel(app, id)
-
-      // Run in background thread
-      Thread {
-         try {
-             backend.setState(tunnel, Tunnel.State.UP, cfg)
-             TunnelXVpnService.isActive = true
-             TunnelXVpnService.currentTunnelId = id
-             Log.i(TAG, "WireGuard started via GoBackend for id=${id}")
-             reactContext.runOnJSQueueThread { promise.resolve(null) }
-         } catch (e: Exception) {
-             Log.e(TAG, "start failed", e)
-             reactContext.runOnJSQueueThread { promise.reject("ESTART", e.message ?: "Failed to start tunnel") }
-         }
-      }.start()
+      // Antes, GoBackend/WgTunnel eram criados aqui como variaveis locais e descartados
+      // ao fim do metodo -- ninguem guardava referencia ao dono do TUN, e por isso o
+      // desligamento nunca alcancava quem realmente segurava o descritor.
+      VpnManager.submit {
+        try {
+          VpnManager.startBlocking(reactContext, id, cfg)
+          Log.i(TAG, "start: tunel UP via VpnManager id=$id")
+          reactContext.runOnJSQueueThread { promise.resolve(null) }
+        } catch (e: Exception) {
+          Log.e(TAG, "start: falhou id=$id", e)
+          VpnStatus.emit("error", id, e.message)
+          val code = if (e.message?.contains("E_NEEDS_PREPARE") == true) "E_NEEDS_PREPARE" else "ESTART"
+          reactContext.runOnJSQueueThread { promise.reject(code, e.message ?: "Failed to start tunnel") }
+        }
+      }
 
     } catch (e: Exception) {
       Log.e(TAG, "start: error starting tunnel id=$id", e)
@@ -153,50 +180,55 @@ class WireGuardModule(private val reactContext: ReactApplicationContext) : React
 
   @ReactMethod
   fun stop(id: String, promise: Promise) {
-    try {
-      // Solicita parada do serviço VpnService (se estiver em uso)
+    // Sem Intent e sem Activity: teardown direto no dono do tunel, VERIFICADO antes de
+    // resolver. O codigo anterior chamava stopService com uma action (que stopService
+    // nunca entrega, pois nao invoca onStartCommand), lancava uma Activity que criava
+    // um GoBackend novo (cujo DOWN a lib descarta) e resolvia a promise
+    // incondicionalmente -- por isso a UI dizia "desconectado" com o TUN de pe.
+    VpnManager.submit {
+      var err: Throwable? = null
       try {
-        val serviceIntent = Intent(reactContext, TunnelXVpnService::class.java).apply {
-          action = TunnelXVpnService.ACTION_STOP_TUNNEL
+        VpnManager.stopBlocking(reactContext)
+      } catch (t: Throwable) {
+        err = t
+        Log.e(TAG, "stop: teardown lancou id=$id", t)
+      } finally {
+        if (VpnManager.isUp()) {
+          Log.e(TAG, "stop: TUNEL AINDA ATIVO apos teardown id=$id")
+          VpnStatus.emit("error", id, err?.message ?: "tunel continua ativo apos teardown")
+          reactContext.runOnJSQueueThread {
+            promise.reject("ESTOP", err?.message ?: "Tunel continua ativo apos o teardown")
+          }
+        } else {
+          VpnStatus.emit("disconnected", null, null)
+          reactContext.runOnJSQueueThread { promise.resolve(null) }
         }
-        reactContext.stopService(serviceIntent)
-      } catch (_: Exception) { /* ignore */ }
-      // Para túneis iniciados via GoBackend, dispara Activity de parada
-      val stopIntent = Intent(reactContext, StopVpnActivity::class.java).apply {
-        putExtra(TunnelXVpnService.EXTRA_TUNNEL_ID, id)
       }
-      val activity = reactContext.currentActivity
-      if (activity != null) {
-        activity.startActivity(stopIntent)
-      } else {
-        stopIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        reactContext.startActivity(stopIntent)
-      }
-      Log.d(TAG, "stop: launched StopVpnActivity and requested service stop for id=$id")
-      promise.resolve(null)
-    } catch (e: Exception) {
-      Log.e(TAG, "stop: error stopping tunnel id=$id", e)
-      promise.reject("ESTOP", "Failed to stop tunnel", e)
     }
   }
 
+  // status/isConnected passam a consultar o BACKEND, nao flags estaticas que o app
+  // escrevia manualmente e que ficavam mentindo quando o teardown falhava.
   @ReactMethod
   fun status(id: String, promise: Promise) {
-    // Placeholder until real status is wired from service/native WG
-    val active = TunnelXVpnService.isActive && TunnelXVpnService.currentTunnelId == id
-    val result = if (active) "up" else "down"
-    Log.d(TAG, "status: id=$id => $result")
-    promise.resolve(result)
+    val up = VpnManager.isUp() && VpnManager.activeTunnelId() == id
+    Log.d(TAG, "status: id=$id => ${if (up) "up" else "down"}")
+    promise.resolve(if (up) "up" else "down")
   }
 
   @ReactMethod
   fun isConnected(promise: Promise) {
-    try {
-      promise.resolve(TunnelXVpnService.isActive)
-    } catch (e: Exception) {
-      Log.e(TAG, "isConnected: failed", e)
-      promise.reject("ESTATUS", "Failed to get tunnel status", e)
+    promise.resolve(VpnManager.isUp())
+  }
+
+  /** Estado completo, para a UI reconciliar no foreground em vez de confiar no disco. */
+  @ReactMethod
+  fun getVpnState(promise: Promise) {
+    val map = Arguments.createMap().apply {
+      putBoolean("connected", VpnManager.isUp())
+      putString("tunnelId", VpnManager.activeTunnelId())
     }
+    promise.resolve(map)
   }
 
   // Optional helper: initiate VpnService.prepare flow from current Activity
@@ -212,10 +244,13 @@ class WireGuardModule(private val reactContext: ReactApplicationContext) : React
           promise.resolve(true)
           return
         }
-        // Use startActivityForResult to reliably show permission UI on all OEMs
-        current.startActivityForResult(intent, 10001)
-        Log.d(TAG, "prepareVpn: launched prepare via Activity context")
-        promise.resolve(true)
+        // NAO resolve aqui: a resposta real chega em onActivityResult. Resolver true
+        // na hora fazia o JS acreditar que a permissao fora concedida mesmo quando o
+        // usuario negava.
+        preparePromise?.reject("EPREP_CANCELLED", "Nova solicitacao de permissao substituiu a anterior")
+        preparePromise = promise
+        current.startActivityForResult(intent, REQ_PREPARE)
+        Log.d(TAG, "prepareVpn: dialogo lancado, aguardando onActivityResult")
         return
       }
 
@@ -228,8 +263,9 @@ class WireGuardModule(private val reactContext: ReactApplicationContext) : React
       }
       appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       reactContext.startActivity(appIntent)
-      Log.d(TAG, "prepareVpn: launched prepare via App context")
-      promise.resolve(true)
+      Log.d(TAG, "prepareVpn: dialogo aberto sem Activity; sem callback de resultado")
+      // Sem Activity nao ha onActivityResult: rejeitar e melhor que mentir.
+      promise.reject("E_NEEDS_PREPARE", "Dialogo de permissao aberto sem Activity; refaca a acao com o app em primeiro plano")
     } catch (e: Exception) {
       Log.e(TAG, "prepareVpn: error launching prepare", e)
       promise.reject("EPREP", "Failed to start VPN prepare activity", e)

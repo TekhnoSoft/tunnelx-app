@@ -4,10 +4,12 @@ import { Camera, useCameraDevice, useCodeScanner } from 'react-native-vision-cam
 import { parseWireGuardConf, toWireGuardConf } from '../utils/wgConfig';
 import { upsertTunnel } from '../storage/tunnels';
 import * as WireGuard from '../native/WireGuard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Props = { navigation: any };
 
 export default function QRScanScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const [hasPermission, setHasPermission] = useState<boolean>(false);
   const [isActive, setIsActive] = useState<boolean>(true);
   const [handled, setHandled] = useState<boolean>(false);
@@ -84,7 +86,7 @@ export default function QRScanScreen({ navigation }: Props) {
         isActive={isActive}
         codeScanner={codeScanner}
       />
-      <View style={styles.overlay}><Text style={styles.hint}>Aponte para o QR com a configuração</Text></View>
+      <View style={[styles.overlay, { bottom: insets.bottom + 24 }]}><Text style={styles.hint}>Aponte para o QR com a configuração</Text></View>
     </View>
   );
 }
@@ -92,7 +94,9 @@ export default function QRScanScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  overlay: { position: 'absolute', bottom: 40, left: 0, right: 0, alignItems: 'center' },
+  // a camera ocupa a tela toda (absoluteFill); quem precisa de inset e o overlay.
+  // bottom vem do inline no JSX: insets.bottom + 24
+  overlay: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   hint: { color: '#fff', fontWeight: '600' },
   permissionContainer: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
   permissionText: { color: '#fff', marginBottom: 12 },

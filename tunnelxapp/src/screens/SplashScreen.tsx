@@ -1,12 +1,15 @@
 import React from 'react';
-import { View, Image, StyleSheet, ActivityIndicator } from 'react-native';
+import { Image, StyleSheet, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SplashScreen() {
   return (
-    <View style={styles.container}>
+    // Unica tela registrada com headerShown: false, portanto a unica responsavel
+    // pelo proprio inset de topo. As demais recebem isso do header nativo.
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <Image source={require('../../splash.png')} style={styles.logo} resizeMode="contain" />
       <ActivityIndicator size="small" />
-    </View>
+    </SafeAreaView>
   );
 }
 

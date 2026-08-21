@@ -21,21 +21,19 @@ class WgTunnel(
       val connected = state == Tunnel.State.UP
       emitStatus(connected)
       Log.d(TAG, "onStateChange: ${state}")
-      TunnelXVpnService.isActive = connected
-      TunnelXVpnService.currentTunnelId = if (connected) TunnelXVpnService.currentTunnelId else null
+      // Callback do backend: apenas REFLETE, nunca decide. O dono do estado e o VpnManager.
+      if (!connected) {
+        TunnelXVpnService.isActive = false
+        TunnelXVpnService.currentTunnelId = null
+      }
     } catch (e: Exception) {
       Log.w(TAG, "onStateChange: failed to emit status", e)
     }
   }
 
+  // Delega para o VpnStatus: a emissao antiga usava reactInstanceManager (bridge legado),
+  // invalido em bridgeless, e a falha era engolida num warning.
   private fun emitStatus(connected: Boolean) {
-    try {
-      val reactApp = app as? ReactApplication ?: return
-      val reactContext = reactApp.reactNativeHost.reactInstanceManager.currentReactContext ?: return
-      val emitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-      emitter.emit(STATUS_EVENT, if (connected) "connected" else "disconnected")
-    } catch (e: Exception) {
-      Log.w(TAG, "emitStatus: failed", e)
-    }
+    VpnStatus.emit(if (connected) "connected" else "disconnected", name, null)
   }
 }

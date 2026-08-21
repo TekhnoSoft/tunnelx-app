@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Image } from 'react-native';
 import * as WireGuard from '../native/WireGuard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SettingsScreen() {
+  const insets = useSafeAreaInsets();
   const onExportZip = () => {
     Alert.alert('Em breve', 'Exportar túneis para arquivo zip será implementado.');
   };
@@ -34,7 +36,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 16 + insets.bottom }}>
       <View style={styles.headerBox}>
         <Image source={require('../../logo.png')} style={styles.logo} />
         <View style={{ marginLeft: 12 }}>

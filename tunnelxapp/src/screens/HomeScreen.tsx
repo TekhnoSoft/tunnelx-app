@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, FlatList, StyleSheet, TouchableOpacity, Text, Modal, Pressable, Alert, Platform, AppState, PermissionsAndroid, InteractionManager } from 'react-native';
+import { View, FlatList, StyleSheet, TouchableOpacity, Text, Modal, Pressable, Alert, Platform, AppState, PermissionsAndroid } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TunnelListItem from '../components/TunnelListItem';
 import type { Tunnel } from '../models/Tunnel';
 import { saveTunnels, removeTunnel, loadTunnels } from '../storage/tunnels';
@@ -19,7 +20,10 @@ export default function HomeScreen({ navigation, initialTunnels = [] }: Props) {
   const [tunnels, setTunnels] = useState<Tunnel[]>(initialTunnels);
   const [showSheet, setShowSheet] = useState(false);
   const [connected, setConnected] = useState<boolean>(false);
-  const stopGuard = useRef(false);
+  const insets = useSafeAreaInsets();
+  // activeId: qual tunel o NATIVO diz estar ativo. busy: transicao em andamento.
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const busy = useRef(false);
 
   // Recarrega ao focar a Home para refletir inclusões/edições/exclusões
   useFocusEffect(
@@ -35,41 +39,37 @@ export default function HomeScreen({ navigation, initialTunnels = [] }: Props) {
     }, [])
   );
 
-  // Solicita permissão de notificação ao entrar na Home (Android 13+)
+  // Estado da VPN: a VERDADE vem do backend nativo, nunca do modelo persistido.
+  //
+  // O bloco anterior tinha um polling de 1,5s que chamava WireGuard.stop() por conta
+  // propria quando achava que todos os tuneis estavam inativos. Desligar VPN e acao do
+  // usuario, jamais efeito colateral de timer. Ele tambem usava uma heuristica de
+  // "trafego" alimentada por bytes falsos que a tela de detalhe incrementava sozinha.
   useEffect(() => {
-    // Assina eventos de status do túnel para refletir conexão/desconexão
-    const sub = WireGuard.subscribeStatus((st) => setConnected(st === 'connected'));
-    // Faz uma checagem inicial
-    WireGuard.isConnected().then(setConnected).catch(() => setConnected(false));
-    // Polling adicional para garantir precisão mesmo sem eventos
-    let mounted = true;
-    let timerId: any = setInterval(async () => {
+    const sub = WireGuard.subscribeStatus((e) => {
+      setConnected(e.state === 'connected');
+      setActiveId(e.state === 'connected' ? e.tunnelId : null);
+      if (e.state === 'error') {
+        Alert.alert('VPN', e.message ?? 'Falha na operação de VPN. O túnel pode continuar ativo.');
+      }
+    });
+
+    const reconcile = async () => {
       try {
-        const ok = await WireGuard.isConnected();
-        let trafficConnected = false;
-        try {
-          const latest = await loadTunnels();
-          const allInactive = latest.length > 0 && latest.every(t => !t.active);
-          trafficConnected = latest.some(t => {
-            const rx = t.stats?.rxMiB ?? 0;
-            const tx = t.stats?.txMiB ?? 0;
-            return (rx + tx) > 0;
-          });
-          if (allInactive && !stopGuard.current) {
-            stopGuard.current = true;
-            try { await WireGuard.stop(latest[0]?.id ?? 'any'); } catch {}
-          }
-          if (!allInactive && stopGuard.current) stopGuard.current = false;
-          if (allInactive) {
-            if (mounted) setConnected(false);
-            return;
-          }
-        } catch {}
-        const final = ok || trafficConnected;
-        if (mounted) setConnected(final);
+        const st = await WireGuard.getVpnState();
+        setConnected(st.connected);
+        setActiveId(st.tunnelId);
+        setTunnels(prev => {
+          const fixed = prev.map(t => ({ ...t, active: st.connected && t.id === st.tunnelId }));
+          saveTunnels(fixed).catch(() => {});
+          return fixed;
+        });
       } catch {}
-    }, 1500);
-    return () => { sub.remove(); clearInterval(timerId); mounted = false; };
+    };
+
+    reconcile();
+    const timerId = setInterval(reconcile, 3000);
+    return () => { sub.remove(); clearInterval(timerId); };
   }, []);
 
   useEffect(() => {
@@ -98,107 +98,68 @@ export default function HomeScreen({ navigation, initialTunnels = [] }: Props) {
   }, []);
 
   const onToggle = async (tun: Tunnel) => {
+    // Guarda de reentrancia: o switch nao pode disparar duas transicoes concorrentes
+    // sobre o mesmo TUN.
+    if (busy.current) return;
+    busy.current = true;
     const enable = !tun.active;
-    // Otimista: ao habilitar, mantenha o switch ligado enquanto solicita permissões/ativa o serviço
-    if (enable) {
-      const optimistic = tunnels.map(t => (t.id === tun.id ? { ...t, active: true } : t));
-      setTunnels(optimistic);
-      try { await saveTunnels(optimistic); } catch {}
-    }
     try {
       if (enable) {
-        // Adia tarefas para após interações de UI, reduzindo risco de ANR
-        InteractionManager.runAfterInteractions(async () => {
+        if (Platform.OS === 'android') {
           try {
-            // Em Android 13+, garanta permissão de notificação para o serviço em primeiro plano
-            if (Platform.OS === 'android') {
-              try {
-                const { status } = await checkNotifications();
-                if (status !== RESULTS.GRANTED && status !== RESULTS.LIMITED) {
-                  await requestNotifications(['alert', 'sound', 'badge']);
-                }
-              } catch {
-                // Ignora falhas de checagem; seguimos com tentativa de iniciar o serviço
-              }
+            const { status } = await checkNotifications();
+            if (status !== RESULTS.GRANTED && status !== RESULTS.LIMITED) {
+              await requestNotifications(['alert', 'sound', 'badge']);
             }
-            // Solicita a permissão de VPN antes de aplicar/ativar
-            try { await WireGuard.prepareVpn(); } catch {}
-            const conf = toWireGuardConf(tun);
-            await WireGuard.applyConfig({ id: tun.id, name: tun.name, conf });
-            await WireGuard.start(tun.id);
-            Alert.alert('Conectado', `Túnel "${tun.name}" iniciado com sucesso.`);
-
-            const updated = tunnels.map(t => (t.id === tun.id ? { ...t, active: true } : t));
-            setTunnels(updated);
-            try { await saveTunnels(updated); } catch {}
-          } catch (e2: any) {
-            // Em caso de erro, reverte estado
-            const revertedInner = tunnels.map(t => (t.id === tun.id ? { ...t, active: false } : t));
-            setTunnels(revertedInner);
-            try { await saveTunnels(revertedInner); } catch {}
-            // Propaga para o catch externo
-            throw e2;
-          }
-        });
-      } else {
-        await WireGuard.stop(tun.id);
-        const updated = tunnels.map(t => (t.id === tun.id ? { ...t, active: false } : t));
-        setTunnels(updated);
-        try { await saveTunnels(updated); } catch {}
-        const allInactive = updated.every(t => !t.active);
-        if (allInactive) {
-          try { await WireGuard.stop(tun.id); } catch {}
-          setConnected(false);
+          } catch {}
         }
+
+        // prepareVpn agora devolve a resposta real do dialogo do Android.
+        const granted = await WireGuard.prepareVpn();
+        if (!granted) {
+          Alert.alert('Permissão de VPN', 'A permissão do Android é necessária para ativar o túnel.');
+          return;
+        }
+
+        await WireGuard.applyConfig({ id: tun.id, name: tun.name, conf: toWireGuardConf(tun) });
+        await WireGuard.start(tun.id); // so resolve com o tunel realmente UP
+
+        // Um unico tunel ativo por vez: subir B derruba A (o VpnManager ja fez isso).
+        const updated = tunnels.map(t => ({ ...t, active: t.id === tun.id }));
+        setTunnels(updated);
+        await saveTunnels(updated).catch(() => {});
+        setConnected(true);
+        setActiveId(tun.id);
+      } else {
+        await WireGuard.stop(tun.id); // so resolve apos o teardown VERIFICADO
+        const updated = tunnels.map(t => ({ ...t, active: false }));
+        setTunnels(updated);
+        await saveTunnels(updated).catch(() => {});
+        setConnected(false);
+        setActiveId(null);
       }
     } catch (e: any) {
+      // Nunca chutar o estado: perguntar ao nativo qual e a verdade.
+      let real: { connected: boolean; tunnelId: string | null } = { connected: false, tunnelId: null };
+      try { real = await WireGuard.getVpnState(); } catch {}
+      const repaired = tunnels.map(t => ({ ...t, active: real.connected && t.id === real.tunnelId }));
+      setTunnels(repaired);
+      await saveTunnels(repaired).catch(() => {});
+      setConnected(real.connected);
+      setActiveId(real.tunnelId);
+
       if (e?.code === 'E_NEEDS_PREPARE') {
-        try {
-          // Solicita a permissão; após o usuário fechar a tela e o app voltar ao estado 'active', tentamos iniciar.
-          await WireGuard.prepareVpn();
-          Alert.alert('Permissão de VPN', 'Conceda a permissão do Android para prosseguir. Voltando ao app, iniciaremos o túnel.');
-          const startTimeout = setTimeout(() => {
-            // Watchdog: se não voltar a 'active' em tempo hábil, avisa e reverte
-            Alert.alert('Demora na permissão', 'O Android demorou para retornar. Tente novamente após conceder a permissão.');
-          }, 12000);
-          const sub = AppState.addEventListener('change', async (state) => {
-            if (state === 'active') {
-              try {
-                sub.remove();
-                clearTimeout(startTimeout);
-                await WireGuard.start(tun.id);
-                const reupdated = tunnels.map(t => (t.id === tun.id ? { ...t, active: true } : t));
-                setTunnels(reupdated);
-                try { await saveTunnels(reupdated); } catch {}
-              } catch (err2: any) {
-                if (err2?.code === 'E_NEEDS_PREPARE') {
-                  Alert.alert('Permissão necessária', 'Conceda a permissão de VPN do Android e tente ativar novamente.');
-                } else {
-                  Alert.alert('Falha ao ativar', err2?.message || 'Ocorreu um erro ao ativar o túnel.');
-                  const reverted = tunnels.map(t => (t.id === tun.id ? { ...t, active: false } : t));
-                  setTunnels(reverted);
-                  try { await saveTunnels(reverted); } catch {}
-                }
-              }
-            }
-          });
-        } catch (prepErr: any) {
-          Alert.alert('Erro ao solicitar permissão', prepErr?.message || 'Falha ao abrir a tela de permissão.');
-          const reverted = tunnels.map(t => (t.id === tun.id ? { ...t, active: false } : t));
-          setTunnels(reverted);
-          try { await saveTunnels(reverted); } catch {}
-        }
-        return;
+        Alert.alert('Permissão necessária', 'Conceda a permissão de VPN do Android e tente novamente.');
+      } else if (!enable) {
+        Alert.alert(
+          'Falha ao desconectar',
+          `${e?.message ?? 'Erro desconhecido'}\n\nO túnel pode continuar ativo. Tente novamente.`
+        );
+      } else {
+        Alert.alert('Falha na conexão', e?.message ?? 'Erro desconhecido ao tentar conectar.');
       }
-      // Para outros erros, reverte o estado
-      const reverted = tunnels.map(t => (t.id === tun.id ? { ...t, active: false } : t));
-      setTunnels(reverted);
-      try { await saveTunnels(reverted); } catch {}
-      
-      Alert.alert(
-        'Falha na conexão',
-        e?.message || 'Ocorreu um erro desconhecido ao tentar conectar.'
-      );
+    } finally {
+      busy.current = false;
     }
   };
 
@@ -224,6 +185,8 @@ export default function HomeScreen({ navigation, initialTunnels = [] }: Props) {
   const renderItem = ({ item }: { item: Tunnel }) => (
     <TunnelListItem
       tunnel={item}
+      isActive={connected && activeId === item.id}
+      busy={busy.current}
       onToggle={onToggle}
       onPress={onPress}
       onEdit={(t) => navigation.navigate('TunnelForm', { tunnel: t })}
@@ -248,10 +211,12 @@ export default function HomeScreen({ navigation, initialTunnels = [] }: Props) {
         <View style={[styles.statusDot, { backgroundColor: connected ? '#2ecc71' : '#e74c3c' }]} />
         <Text style={styles.statusText}>{connected ? 'Conectado' : 'Desconectado'}</Text>
       </View>
+      {/* paddingBottom: espaco para o ultimo item nao ficar sob o FAB nem sob a barra de navegacao */}
       <FlatList
         data={tunnels}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
         ListEmptyComponent={() => (
           <View style={styles.empty}> 
             <Text style={styles.emptyText}>Nenhum túnel. Toque ＋ para criar.</Text>
@@ -260,14 +225,14 @@ export default function HomeScreen({ navigation, initialTunnels = [] }: Props) {
       />
 
       {/* FAB */}
-      <TouchableOpacity style={styles.fab} onPress={() => setShowSheet(true)}>
+      <TouchableOpacity style={[styles.fab, { bottom: insets.bottom + 24 }]} onPress={() => setShowSheet(true)}>
         <Plus size={28} color="#fff" />
       </TouchableOpacity>
 
       {/* Bottom Sheet Modal */}
       <Modal visible={showSheet} transparent animationType="slide" onRequestClose={() => setShowSheet(false)}>
         <Pressable style={styles.backdrop} onPress={() => setShowSheet(false)} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
           <Text style={styles.sheetTitle}>Adicionar túnel</Text>
           <Pressable style={styles.option} onPress={onCreateFromFile}>
             <FileArrowDown size={22} style={styles.optionIcon} />
@@ -297,7 +262,7 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: 24,
-    bottom: 24,
+    // bottom vem do inline no JSX: insets.bottom + 24
     width: 56,
     height: 56,
     borderRadius: 28,

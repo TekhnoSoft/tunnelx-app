@@ -5,13 +5,17 @@ import { PencilSimple, Trash } from 'phosphor-react-native';
 
 type Props = {
   tunnel: Tunnel;
+  /** Verdade vinda do backend nativo, nao o campo persistido tunnel.active. */
+  isActive?: boolean;
+  /** Bloqueia duplo-toque enquanto a transicao UP/DOWN esta em andamento. */
+  busy?: boolean;
   onToggle: (tunnel: Tunnel) => void;
   onPress: (tunnel: Tunnel) => void;
   onEdit: (tunnel: Tunnel) => void;
   onDelete: (tunnel: Tunnel) => void;
 };
 
-export default function TunnelListItem({ tunnel, onToggle, onPress, onEdit, onDelete }: Props) {
+export default function TunnelListItem({ tunnel, isActive, busy, onToggle, onPress, onEdit, onDelete }: Props) {
   const firstPeer = tunnel.peers?.[0];
   return (
     <TouchableOpacity onPress={() => onPress(tunnel)} style={styles.row}>
@@ -30,7 +34,11 @@ export default function TunnelListItem({ tunnel, onToggle, onPress, onEdit, onDe
         )}
       </View>
       <View style={styles.actions}>
-        <Switch value={tunnel.active} onValueChange={() => onToggle(tunnel)} />
+        <Switch
+          value={isActive ?? !!tunnel.active}
+          disabled={!!busy}
+          onValueChange={() => onToggle(tunnel)}
+        />
         <TouchableOpacity style={styles.iconBtn} onPress={() => onEdit(tunnel)}>
           <PencilSimple size={18} />
         </TouchableOpacity>

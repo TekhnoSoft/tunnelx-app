@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { StatusBar, useColorScheme, TouchableOpacity } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { enableScreens } from 'react-native-screens';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -44,7 +44,9 @@ function App() {
   }, []);
 
   return (
-    <SafeAreaProvider>
+    // initialMetrics evita insets zerados no primeiro frame -- e justamente
+    // nesse frame que a Splash (headerShown: false) fica 3s na tela.
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <NavigationContainer theme={isDarkMode ? DarkTheme : DefaultTheme}>
         <Stack.Navigator screenOptions={{ headerTitle: () => <HeaderTitle /> }}>

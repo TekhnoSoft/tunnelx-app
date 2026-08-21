@@ -4,10 +4,12 @@ import { NativeModules } from 'react-native';
 import { parseWireGuardConf, toWireGuardConf } from '../utils/wgConfig';
 import { upsertTunnel } from '../storage/tunnels';
 import * as WireGuard from '../native/WireGuard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Props = { navigation: any };
 
 export default function ConfImportScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
 
   const onImport = async () => {
@@ -60,7 +62,9 @@ export default function ConfImportScreen({ navigation }: Props) {
   };
 
   return (
-    <View style={styles.container}>
+    // Tela sem scroll: o TextInput com flex:1 empurra os botoes para o rodape,
+    // entao o inset vai no proprio container.
+    <View style={[styles.container, { paddingBottom: 16 + insets.bottom }]}>
       <Text style={styles.title}>Selecione um arquivo .conf ou cole o conteúdo</Text>
       <TextInput
         style={styles.input}

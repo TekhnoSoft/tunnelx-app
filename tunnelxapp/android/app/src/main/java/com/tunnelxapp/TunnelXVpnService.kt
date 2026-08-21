@@ -79,7 +79,9 @@ class TunnelXVpnService : VpnService() {
             try { establishBasicTun() } catch (_: Exception) {}
           }
         }
-        return START_STICKY
+        // Uma VPN jamais deve reaparecer sozinha: na recriacao o intent vem null e cai
+    // no ramo else vazio, deixando um servico zumbi sem TUN e sem notificacao.
+    return START_NOT_STICKY
       }
       ACTION_STOP_TUNNEL -> {
         Log.d(TAG, "onStartCommand: ACTION_STOP_TUNNEL")

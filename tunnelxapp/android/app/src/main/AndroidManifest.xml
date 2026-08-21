@@ -38,14 +38,18 @@
         android:exported="false"
         android:excludeFromRecents="true"
         android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+      <!-- Sem intent-filter android.net.VpnService: quem estabelece o TUN e o
+           GoBackend.VpnService do AAR oficial. Com o filtro, este servico competia
+           para ser eleito o VpnService do pacote (always-on VPN, reboot, retomada de
+           sessao) e podia subir uma rota 0.0.0.0/0 sem engine nenhuma. -->
       <service
         android:name=".TunnelXVpnService"
         android:permission="android.permission.BIND_VPN_SERVICE"
-        android:exported="true"
+        android:exported="false"
         android:foregroundServiceType="specialUse">
-        <intent-filter>
-          <action android:name="android.net.VpnService" />
-        </intent-filter>
+        <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="vpn_tunnel_supervision" />
       </service>
       
     </application>
