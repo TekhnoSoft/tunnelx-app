@@ -20,6 +20,8 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import QRScanScreen from './src/screens/QRScanScreen';
 import ConfImportScreen from './src/screens/ConfImportScreen';
 import { loadTunnels } from './src/storage/tunnels';
+import LoginScreen from './src/screens/LoginScreen';
+import { loadToken, loadClient, clearSession, type SessionClient } from './src/storage/session';
 import type { Tunnel } from './src/models/Tunnel';
 import type { RootStackParamList } from './src/navigation/types';
 import HeaderTitle from './src/components/HeaderTitle';
@@ -33,15 +35,31 @@ function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const [ready, setReady] = useState(false);
   const [initialTunnels, setInitialTunnels] = useState<Tunnel[]>([]);
+  const [client, setClient] = useState<SessionClient | null>(null);
 
   useEffect(() => {
-    // Simula inicialização/carregamento de dados
     (async () => {
-      const tunnels = await loadTunnels();
+      const [tunnels, token, salvo] = await Promise.all([
+        loadTunnels(),
+        loadToken(),
+        loadClient(),
+      ]);
       setInitialTunnels(tunnels);
+      // Sessão só vale com os dois: token sem perfil deixaria a Home sem saber
+      // de quem são as conexões, e perfil sem token não autentica nada.
+      if (token && salvo) setClient(salvo);
       setTimeout(() => setReady(true), 3000);
     })();
   }, []);
+
+  const sair = async (removerTuneis: boolean) => {
+    if (removerTuneis) {
+      const { clearSyncedTunnels } = await import('./src/services/sync');
+      setInitialTunnels(await clearSyncedTunnels());
+    }
+    await clearSession();
+    setClient(null);
+  };
 
   return (
     // initialMetrics evita insets zerados no primeiro frame -- e justamente
@@ -52,6 +70,11 @@ function App() {
         <Stack.Navigator screenOptions={{ headerTitle: () => <HeaderTitle /> }}>
           {!ready ? (
             <Stack.Screen name="Splash" component={SplashScreen} options={{ headerShown: false }} />
+          ) : !client ? (
+            // Sem sessão não há o que mostrar: as conexões pertencem a uma conta.
+            <Stack.Screen name="Login" options={{ headerShown: false }}>
+              {() => <LoginScreen onSigned={setClient} />}
+            </Stack.Screen>
           ) : (
             <>
               <Stack.Screen
@@ -69,7 +92,9 @@ function App() {
               </Stack.Screen>
               <Stack.Screen name="TunnelDetail" component={TunnelDetailScreen} options={{ title: 'TunnelX' }} />
               <Stack.Screen name="TunnelForm" component={TunnelFormScreen} options={{ title: 'TunnelX' }} />
-              <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Definições' }} />
+              <Stack.Screen name="Settings" options={{ title: 'Definições' }}>
+                {(props) => <SettingsScreen {...props} client={client} onSignOut={sair} />}
+              </Stack.Screen>
               <Stack.Screen name="QRScan" component={QRScanScreen} options={{ title: 'Ler QR' }} />
               <Stack.Screen name="ConfImport" component={ConfImportScreen} options={{ title: 'Importar .conf' }} />
             </>

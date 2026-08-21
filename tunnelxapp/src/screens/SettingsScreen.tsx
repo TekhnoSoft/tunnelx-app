@@ -2,9 +2,44 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Image } from 'react-native';
 import * as WireGuard from '../native/WireGuard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { syncConnections } from '../services/sync';
+import type { SessionClient } from '../storage/session';
 
-export default function SettingsScreen() {
+type Props = {
+  client?: SessionClient | null;
+  onSignOut?: (removerTuneis: boolean) => Promise<void> | void;
+};
+
+export default function SettingsScreen({ client, onSignOut }: Props) {
   const insets = useSafeAreaInsets();
+
+  const onSync = async () => {
+    try {
+      const r = await syncConnections();
+      const partes = [`${r.imported} conexão(ões) atualizada(s)`];
+      if (r.pending) partes.push(`${r.pending} ainda em preparação`);
+      if (r.failed.length) partes.push(`${r.failed.length} com erro`);
+      Alert.alert('Sincronização concluída', partes.join(' | '));
+    } catch (e: any) {
+      Alert.alert('Falha ao sincronizar', e?.message || 'Erro desconhecido');
+    }
+  };
+
+  const onLogout = () => {
+    Alert.alert(
+      'Sair da conta',
+      'Os túneis já instalados continuam funcionando. Você pode removê-los junto se este aparelho não for mais seu.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Sair', onPress: () => onSignOut && onSignOut(false) },
+        {
+          text: 'Sair e remover túneis',
+          style: 'destructive',
+          onPress: () => onSignOut && onSignOut(true),
+        },
+      ]
+    );
+  };
   const onExportZip = () => {
     Alert.alert('Em breve', 'Exportar túneis para arquivo zip será implementado.');
   };
@@ -39,11 +74,25 @@ export default function SettingsScreen() {
     <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 16 + insets.bottom }}>
       <View style={styles.headerBox}>
         <Image source={require('../../logo.png')} style={styles.logo} />
-        <View style={{ marginLeft: 12 }}>
-          <Text style={styles.title}>TunnelX</Text>
-          <Text style={styles.subtitle}>Cliente TunnelX (demo)</Text>
+        <View style={{ marginLeft: 12, flex: 1 }}>
+          <Text style={styles.title}>{client?.name || 'TunnelX'}</Text>
+          <Text style={styles.subtitle}>{client?.cpf ? `CPF ${client.cpf}` : 'Cliente TunnelX'}</Text>
         </View>
       </View>
+
+      {client ? (
+        <View style={styles.section}>
+          <TouchableOpacity style={styles.item} onPress={onSync}>
+            <Text style={styles.itemTitle}>Sincronizar minhas conexões</Text>
+            <Text style={styles.itemDesc}>Busca no servidor as conexões da sua conta e atualiza os túneis</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.item, styles.semLinha]} onPress={onLogout}>
+            <Text style={[styles.itemTitle, styles.sair]}>Sair da conta</Text>
+            <Text style={styles.itemDesc}>Será necessário entrar de novo com CPF e senha</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <View style={styles.section}>
         <TouchableOpacity style={styles.item} onPress={onRequestVpnPermission}>
@@ -87,4 +136,6 @@ const styles = StyleSheet.create({
   item: { paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee' },
   itemTitle: { fontSize: 16, fontWeight: '500' },
   itemDesc: { fontSize: 12, color: '#666', marginTop: 4 },
+  semLinha: { borderBottomWidth: 0 },
+  sair: { color: '#B00020' },
 });
