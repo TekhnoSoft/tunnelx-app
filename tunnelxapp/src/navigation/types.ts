@@ -3,6 +3,8 @@ import type { Tunnel } from '../models/Tunnel';
 export type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
+  FirstAccess: undefined;
+  NewPassword: undefined;
   Home: { initialTunnels?: Tunnel[] } | undefined;
   TunnelDetail: { tunnel: Tunnel };
   TunnelForm: { tunnel?: Tunnel } | undefined;

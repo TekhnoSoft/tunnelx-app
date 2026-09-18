@@ -5,31 +5,34 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Eye, EyeSlash } from 'phosphor-react-native';
+import { Eye, EyeSlash, ArrowLeft, Key } from 'phosphor-react-native';
 import { login } from '../api/client';
-import { syncConnections } from '../services/sync';
 import type { SessionClient } from '../storage/session';
 import { maskCpf } from '../utils/cpf';
 
 type Props = {
-  onSigned: (client: SessionClient) => void;
   /**
-   * Entrou com a senha que o operador entregou e ainda precisa criar a dele.
-   * Acontece também por este caminho, e não só pelo "Primeiro acesso": quem teve
-   * a senha regerada pelo suporte cai aqui sem saber que virou provisória.
+   * Entrou com a senha provisória: quem chama leva à tela de nova senha e
+   * repassa `senhaProvisoria`, para não pedir de novo o que acabou de ser
+   * digitado. A senha fica só em memória.
    */
   onNeedsNewPassword: (client: SessionClient, senhaProvisoria: string) => void;
-  onFirstAccess: () => void;
+  /**
+   * A senha já não era provisória — o cliente tinha trocado antes e veio parar
+   * aqui por engano. Não faz sentido mandá-lo de volta ao login: ele acabou de
+   * se autenticar, então entra direto.
+   */
+  onSigned: (client: SessionClient) => void;
+  onCancel: () => void;
 };
 
-export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAccess }: Props) {
+export default function FirstAccessScreen({ onNeedsNewPassword, onSigned, onCancel }: Props) {
   const insets = useSafeAreaInsets();
   const [cpf, setCpf] = useState('');
   const [senha, setSenha] = useState('');
@@ -38,33 +41,21 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAcces
   const [erro, setErro] = useState<string | null>(null);
 
   const digitos = cpf.replace(/\D/g, '');
-  const podeEntrar = digitos.length === 11 && senha.length > 0 && !carregando;
+  const podeContinuar = digitos.length === 11 && senha.length > 0 && !carregando;
 
-  const entrar = async () => {
-    if (!podeEntrar) return;
+  const continuar = async () => {
+    if (!podeContinuar) return;
     setErro(null);
     setCarregando(true);
     try {
       const { client, mustChangePassword } = await login(digitos, senha);
-
-      // Senha ainda é a do balcão: o token que acabou de chegar só abre a troca,
-      // então nem adianta sincronizar — /app/connections responderia 403.
       if (mustChangePassword) {
         onNeedsNewPassword(client, senha);
-        return;
+      } else {
+        onSigned(client);
       }
-
-      // A importação dos túneis não pode derrubar o login: se a rede cair no
-      // meio, o usuário entra assim mesmo e sincroniza depois pela Home.
-      try {
-        await syncConnections();
-      } catch (e) {
-        console.warn('[Login] falha ao sincronizar conexões', e);
-      }
-
-      onSigned(client);
     } catch (e: any) {
-      setErro(e?.message || 'Não foi possível entrar.');
+      setErro(e?.message || 'Não foi possível confirmar seus dados.');
     } finally {
       setCarregando(false);
     }
@@ -78,14 +69,22 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAcces
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 24 },
+          { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 },
         ]}
         keyboardShouldPersistTaps="handled"
       >
+        <TouchableOpacity style={styles.voltar} onPress={onCancel} accessibilityLabel="Voltar">
+          <ArrowLeft size={20} color="#007AFF" />
+          <Text style={styles.voltarTexto}>Voltar</Text>
+        </TouchableOpacity>
+
         <View style={styles.brand}>
-          <Image source={require('../../logo.png')} style={styles.logo} />
-          <Text style={styles.title}>TunnelX</Text>
-          <Text style={styles.subtitle}>Entre com seu CPF para acessar suas conexões</Text>
+          <Key size={44} color="#007AFF" weight="duotone" />
+          <Text style={styles.title}>Primeiro acesso</Text>
+          <Text style={styles.subtitle}>
+            Confirme seu CPF e digite a senha provisória que você recebeu no cadastro. No passo
+            seguinte você cria a sua senha.
+          </Text>
         </View>
 
         <View style={styles.form}>
@@ -101,18 +100,20 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAcces
             autoComplete="off"
           />
 
-          <Text style={styles.label}>Senha</Text>
+          <Text style={styles.label}>Senha provisória</Text>
           <View style={styles.senhaBox}>
             <TextInput
               style={styles.senhaInput}
               value={senha}
               onChangeText={setSenha}
-              placeholder="Senha recebida no cadastro"
+              placeholder="Ex.: ABCD-2345"
               secureTextEntry={!verSenha}
-              autoCapitalize="none"
+              // A senha gerada é toda em maiúsculas e sem acento; o teclado já
+              // abre no formato certo para não virar erro de digitação.
+              autoCapitalize="characters"
               autoCorrect={false}
               returnKeyType="go"
-              onSubmitEditing={entrar}
+              onSubmitEditing={continuar}
             />
             <TouchableOpacity
               style={styles.olho}
@@ -126,34 +127,20 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAcces
           {erro ? <Text style={styles.erro}>{erro}</Text> : null}
 
           <TouchableOpacity
-            style={[styles.botao, !podeEntrar && styles.botaoInativo]}
-            onPress={entrar}
-            disabled={!podeEntrar}
+            style={[styles.botao, !podeContinuar && styles.botaoInativo]}
+            onPress={continuar}
+            disabled={!podeContinuar}
           >
             {carregando ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.botaoTexto}>Entrar</Text>
+              <Text style={styles.botaoTexto}>Continuar</Text>
             )}
           </TouchableOpacity>
 
-          <View style={styles.divisor}>
-            <View style={styles.linha} />
-            <Text style={styles.divisorTexto}>ou</Text>
-            <View style={styles.linha} />
-          </View>
-
-          <TouchableOpacity
-            style={styles.botaoSecundario}
-            onPress={onFirstAccess}
-            disabled={carregando}
-          >
-            <Text style={styles.botaoSecundarioTexto}>Primeiro acesso</Text>
-          </TouchableOpacity>
-
           <Text style={styles.ajuda}>
-            É a sua primeira vez no app? Use o <Text style={styles.destaque}>Primeiro acesso</Text>{' '}
-            com o CPF e a senha provisória que você recebeu no cadastro.
+            A senha provisória é entregue pela TunnelX no momento do cadastro. Se você não recebeu
+            ou não lembra, fale com o suporte — uma nova pode ser gerada.
           </Text>
         </View>
       </ScrollView>
@@ -164,10 +151,11 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAcces
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   content: { paddingHorizontal: 24, flexGrow: 1, justifyContent: 'center' },
-  brand: { alignItems: 'center', marginBottom: 32 },
-  logo: { width: 72, height: 72, resizeMode: 'contain', marginBottom: 12 },
-  title: { fontSize: 26, fontWeight: '700', color: '#111' },
-  subtitle: { fontSize: 14, color: '#666', marginTop: 6, textAlign: 'center' },
+  voltar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  voltarTexto: { color: '#007AFF', fontSize: 15, fontWeight: '600' },
+  brand: { alignItems: 'center', marginBottom: 20 },
+  title: { fontSize: 24, fontWeight: '700', color: '#111', marginTop: 12 },
+  subtitle: { fontSize: 14, color: '#666', marginTop: 8, textAlign: 'center', lineHeight: 20 },
   form: { gap: 4 },
   label: { fontSize: 13, fontWeight: '600', color: '#333', marginBottom: 6, marginTop: 10 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16 },
@@ -197,18 +185,5 @@ const styles = StyleSheet.create({
   },
   botaoInativo: { backgroundColor: '#A9C9F0' },
   botaoTexto: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  divisor: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20 },
-  linha: { flex: 1, height: 1, backgroundColor: '#e5e7eb' },
-  divisorTexto: { fontSize: 12, color: '#9ca3af' },
-  botaoSecundario: {
-    borderWidth: 1,
-    borderColor: '#007AFF',
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  botaoSecundarioTexto: { color: '#007AFF', fontWeight: '700', fontSize: 16 },
   ajuda: { fontSize: 12, color: '#888', textAlign: 'center', marginTop: 16, lineHeight: 18 },
-  destaque: { fontWeight: '700', color: '#666' },
 });

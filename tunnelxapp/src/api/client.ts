@@ -1,4 +1,10 @@
-import { loadToken, saveSession, clearSession, type SessionClient } from '../storage/session';
+import {
+  loadToken,
+  saveSession,
+  clearSession,
+  completePasswordChange,
+  type SessionClient,
+} from '../storage/session';
 
 /**
  * Cliente HTTP do aplicativo.
@@ -89,22 +95,50 @@ export type ApiConnection = {
   updatedAt: string;
 };
 
-export async function login(cpf: string, password: string): Promise<SessionClient> {
-  const r = await request<{ token: string; client: SessionClient }>('/app/login', {
-    method: 'POST',
-    body: { cpf, password },
-    auth: false,
-  });
-  await saveSession(r.token, r.client);
-  return r.client;
+export type LoginResult = {
+  client: SessionClient;
+  /**
+   * A senha usada foi a que o operador entregou no balcão.
+   *
+   * Quem manda de verdade é o servidor: o token emitido nesse caso só abre
+   * /app/change-password, e qualquer outra rota responde 403
+   * PASSWORD_CHANGE_REQUIRED. Este campo existe para o app levar o usuário
+   * direto à tela certa em vez de deixá-lo esbarrar no erro.
+   */
+  mustChangePassword: boolean;
+};
+
+export async function login(cpf: string, password: string): Promise<LoginResult> {
+  const r = await request<{ token: string; client: SessionClient; must_change_password?: boolean }>(
+    '/app/login',
+    {
+      method: 'POST',
+      body: { cpf, password },
+      auth: false,
+    }
+  );
+  const mustChangePassword = !!r.must_change_password;
+  await saveSession(r.token, r.client, mustChangePassword);
+  return { client: r.client, mustChangePassword };
 }
 
 export async function fetchConnections(): Promise<ApiConnection[]> {
   return request<ApiConnection[]>('/app/connections');
 }
 
+/**
+ * Troca de senha — também é o que conclui o primeiro acesso.
+ *
+ * O servidor devolve um token novo, agora pleno. É preciso guardá-lo: o que
+ * está no aparelho pode ser o provisório, recusado em todas as outras rotas.
+ * Sem esta troca o cliente definiria a senha e continuaria sem ver as conexões.
+ */
 export async function changePassword(current_password: string, new_password: string): Promise<void> {
-  await request('/app/change-password', { method: 'POST', body: { current_password, new_password } });
+  const r = await request<{ token?: string }>('/app/change-password', {
+    method: 'POST',
+    body: { current_password, new_password },
+  });
+  await completePasswordChange(r?.token);
 }
 
 export async function logout(): Promise<void> {
