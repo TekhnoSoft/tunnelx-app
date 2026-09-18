@@ -3,20 +3,23 @@ import {
   View,
   Text,
   StyleSheet,
-  TextInput,
-  TouchableOpacity,
   Image,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Eye, EyeSlash } from 'phosphor-react-native';
+import { ArrowRight } from 'phosphor-react-native';
 import { login } from '../api/client';
 import { syncConnections } from '../services/sync';
 import type { SessionClient } from '../storage/session';
 import { maskCpf } from '../utils/cpf';
+import Screen from '../components/Screen';
+import Card from '../components/Card';
+import Button from '../components/Button';
+import Field from '../components/Field';
+import { colors, metrics, radius, spacing, type } from '../theme';
 
 type Props = {
   onSigned: (client: SessionClient) => void;
@@ -31,9 +34,10 @@ type Props = {
 
 export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAccess }: Props) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const m = metrics(width);
   const [cpf, setCpf] = useState('');
   const [senha, setSenha] = useState('');
-  const [verSenha, setVerSenha] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -71,71 +75,69 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAcces
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 24 },
-        ]}
-        keyboardShouldPersistTaps="handled"
+    <Screen>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.brand}>
-          <Image source={require('../../logo.png')} style={styles.logo} />
-          <Text style={styles.title}>TunnelX</Text>
-          <Text style={styles.subtitle}>Entre com seu CPF para acessar suas conexões</Text>
-        </View>
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingHorizontal: m.gutter,
+              paddingTop: insets.top + spacing.xxl,
+              paddingBottom: insets.bottom + spacing.xl,
+            },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.brand}>
+            <View style={styles.logoAro}>
+              <Image source={require('../../logo.png')} style={styles.logo} />
+            </View>
+            <Text style={styles.title}>
+              Tunnel<Text style={styles.x}>X</Text>
+            </Text>
+            <Text style={styles.subtitle}>Sua conexão protegida, onde você estiver</Text>
+          </View>
 
-        <View style={styles.form}>
-          <Text style={styles.label}>CPF</Text>
-          <TextInput
-            style={styles.input}
-            value={cpf}
-            onChangeText={t => setCpf(maskCpf(t))}
-            placeholder="000.000.000-00"
-            keyboardType="number-pad"
-            returnKeyType="next"
-            maxLength={14}
-            autoComplete="off"
-          />
+          <Card label="Entrar">
+            <Field
+              label="CPF"
+              value={cpf}
+              onChangeText={t => setCpf(maskCpf(t))}
+              placeholder="000.000.000-00"
+              keyboardType="number-pad"
+              returnKeyType="next"
+              maxLength={14}
+              autoComplete="off"
+              mono
+            />
 
-          <Text style={styles.label}>Senha</Text>
-          <View style={styles.senhaBox}>
-            <TextInput
-              style={styles.senhaInput}
+            <Field
+              label="Senha"
               value={senha}
               onChangeText={setSenha}
-              placeholder="Senha recebida no cadastro"
-              secureTextEntry={!verSenha}
+              placeholder="Sua senha"
+              secret
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="go"
               onSubmitEditing={entrar}
+              hint={erro ?? undefined}
+              hintTone="error"
             />
-            <TouchableOpacity
-              style={styles.olho}
-              onPress={() => setVerSenha(v => !v)}
-              accessibilityLabel={verSenha ? 'Ocultar senha' : 'Mostrar senha'}
-            >
-              {verSenha ? <EyeSlash size={20} color="#666" /> : <Eye size={20} color="#666" />}
-            </TouchableOpacity>
-          </View>
 
-          {erro ? <Text style={styles.erro}>{erro}</Text> : null}
-
-          <TouchableOpacity
-            style={[styles.botao, !podeEntrar && styles.botaoInativo]}
-            onPress={entrar}
-            disabled={!podeEntrar}
-          >
-            {carregando ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.botaoTexto}>Entrar</Text>
-            )}
-          </TouchableOpacity>
+            <Button
+              label="Entrar"
+              onPress={entrar}
+              disabled={!podeEntrar}
+              loading={carregando}
+              icon={<ArrowRight size={18} color="#fff" weight="bold" />}
+              style={styles.botao}
+            />
+          </Card>
 
           <View style={styles.divisor}>
             <View style={styles.linha} />
@@ -143,72 +145,52 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAcces
             <View style={styles.linha} />
           </View>
 
-          <TouchableOpacity
-            style={styles.botaoSecundario}
-            onPress={onFirstAccess}
-            disabled={carregando}
-          >
-            <Text style={styles.botaoSecundarioTexto}>Primeiro acesso</Text>
-          </TouchableOpacity>
+          <Button label="Primeiro acesso" variant="ghost" onPress={onFirstAccess} />
 
           <Text style={styles.ajuda}>
             É a sua primeira vez no app? Use o <Text style={styles.destaque}>Primeiro acesso</Text>{' '}
             com o CPF e a senha provisória que você recebeu no cadastro.
           </Text>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  content: { paddingHorizontal: 24, flexGrow: 1, justifyContent: 'center' },
-  brand: { alignItems: 'center', marginBottom: 32 },
-  logo: { width: 72, height: 72, resizeMode: 'contain', marginBottom: 12 },
-  title: { fontSize: 26, fontWeight: '700', color: '#111' },
-  subtitle: { fontSize: 14, color: '#666', marginTop: 6, textAlign: 'center' },
-  form: { gap: 4 },
-  label: { fontSize: 13, fontWeight: '600', color: '#333', marginBottom: 6, marginTop: 10 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16 },
-  senhaBox: {
-    flexDirection: 'row',
+  flex: { flex: 1 },
+  content: { flexGrow: 1, justifyContent: 'center' },
+  brand: { alignItems: 'center', marginBottom: spacing.xxl },
+  logoAro: {
+    width: 84,
+    height: 84,
+    borderRadius: radius.xl,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
+    borderColor: colors.borderStrong,
   },
-  senhaInput: { flex: 1, padding: 12, fontSize: 16 },
-  olho: { paddingHorizontal: 12, paddingVertical: 10 },
-  erro: {
-    color: '#B00020',
-    backgroundColor: '#FDECEA',
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 12,
-    fontSize: 13,
+  logo: { width: 52, height: 52, resizeMode: 'contain' },
+  title: { ...type.display, color: colors.text, marginTop: spacing.lg },
+  x: { color: colors.greenInk },
+  subtitle: {
+    ...type.small,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    textAlign: 'center',
   },
-  botao: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 20,
+  botao: { marginTop: spacing.sm },
+  divisor: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginVertical: spacing.xl },
+  linha: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  divisorTexto: { ...type.tiny, color: colors.textDim, fontWeight: '500' },
+  ajuda: {
+    ...type.tiny,
+    color: colors.textDim,
+    textAlign: 'center',
+    marginTop: spacing.xl,
+    lineHeight: 18,
+    fontWeight: '500',
   },
-  botaoInativo: { backgroundColor: '#A9C9F0' },
-  botaoTexto: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  divisor: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20 },
-  linha: { flex: 1, height: 1, backgroundColor: '#e5e7eb' },
-  divisorTexto: { fontSize: 12, color: '#9ca3af' },
-  botaoSecundario: {
-    borderWidth: 1,
-    borderColor: '#007AFF',
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  botaoSecundarioTexto: { color: '#007AFF', fontWeight: '700', fontSize: 16 },
-  ajuda: { fontSize: 12, color: '#888', textAlign: 'center', marginTop: 16, lineHeight: 18 },
-  destaque: { fontWeight: '700', color: '#666' },
+  destaque: { color: colors.textMuted, fontWeight: '700' },
 });

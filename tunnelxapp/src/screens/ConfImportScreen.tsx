@@ -1,16 +1,29 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { NativeModules } from 'react-native';
+import { FolderOpen, ClipboardText } from 'phosphor-react-native';
 import { parseWireGuardConf, toWireGuardConf } from '../utils/wgConfig';
 import { upsertTunnel } from '../storage/tunnels';
 import * as WireGuard from '../native/WireGuard';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Screen from '../components/Screen';
+import Button from '../components/Button';
+import { colors, radius, spacing, type } from '../theme';
+import { useLayout } from '../theme/useLayout';
 
 type Props = { navigation: any };
 
 export default function ConfImportScreen({ navigation }: Props) {
-  const insets = useSafeAreaInsets();
+  const m = useLayout();
   const [text, setText] = useState('');
+  const [focado, setFocado] = useState(false);
 
   const onImport = async () => {
     try {
@@ -36,7 +49,7 @@ export default function ConfImportScreen({ navigation }: Props) {
 
       // Handle wg:// scheme just like QR code
       const tunnel = parseWireGuardConf(content);
-      
+
       let next;
       try {
         next = await upsertTunnel(tunnel);
@@ -61,56 +74,109 @@ export default function ConfImportScreen({ navigation }: Props) {
     }
   };
 
+  const onImportColado = async () => {
+    try {
+      if (!text.trim()) {
+        Alert.alert('Conteúdo vazio', 'Cole o conteúdo do arquivo .conf');
+        return;
+      }
+      const confText = text.trim().startsWith('wg://')
+        ? decodeURIComponent(text.trim().slice(5))
+        : text;
+      const tunnel = parseWireGuardConf(confText);
+      const next = await upsertTunnel(tunnel);
+      const conf = toWireGuardConf(tunnel);
+      await WireGuard.applyConfig({ id: tunnel.id, name: tunnel.name, conf });
+      Alert.alert('Importado', `Túnel "${tunnel.name}" pronto para iniciar.`);
+      navigation.reset({ index: 0, routes: [{ name: 'Home', params: { initialTunnels: next } }] });
+    } catch (e: any) {
+      Alert.alert('Falha ao importar', e?.message || 'Erro desconhecido');
+    }
+  };
+
   return (
     // Tela sem scroll: o TextInput com flex:1 empurra os botoes para o rodape,
     // entao o inset vai no proprio container.
-    <View style={[styles.container, { paddingBottom: 16 + insets.bottom }]}>
-      <Text style={styles.title}>Selecione um arquivo .conf ou cole o conteúdo</Text>
-      <TextInput
-        style={styles.input}
-        multiline
-        numberOfLines={12}
-        placeholder="Cole o conteúdo do .conf ou um link wg://..."
-        value={text}
-        onChangeText={setText}
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-      <TouchableOpacity style={styles.btn} onPress={onImport}>
-        <Text style={styles.btnText}>Importar do arquivo</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.btn, { backgroundColor: '#555', marginTop: 10 }]}
-        onPress={async () => {
-          try {
-            if (!text.trim()) {
-              Alert.alert('Conteúdo vazio', 'Cole o conteúdo do arquivo .conf');
-              return;
-            }
-            const confText = text.trim().startsWith('wg://') 
-              ? decodeURIComponent(text.trim().slice(5)) 
-              : text;
-            const tunnel = parseWireGuardConf(confText);
-            const next = await upsertTunnel(tunnel);
-            const conf = toWireGuardConf(tunnel);
-            await WireGuard.applyConfig({ id: tunnel.id, name: tunnel.name, conf });
-            Alert.alert('Importado', `Túnel "${tunnel.name}" pronto para iniciar.`);
-            navigation.reset({ index: 0, routes: [{ name: 'Home', params: { initialTunnels: next } }] });
-          } catch (e: any) {
-            Alert.alert('Falha ao importar', e?.message || 'Erro desconhecido');
-          }
-        }}
+    <Screen>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Text style={styles.btnText}>Importar do conteúdo colado</Text>
-      </TouchableOpacity>
-    </View>
+        <View
+          style={[
+            styles.container,
+            { paddingHorizontal: m.gutter, paddingTop: m.paddingTop, paddingBottom: m.paddingBottom },
+          ]}
+        >
+          <Text style={styles.titulo}>Importar configuração</Text>
+          <Text style={styles.subtitulo}>
+            Escolha um arquivo .conf do aparelho ou cole o conteúdo abaixo.
+          </Text>
+
+          <View style={[styles.editorBox, focado && styles.editorFocado]}>
+            <Text style={styles.editorLabel}>Conteúdo do .conf</Text>
+            <TextInput
+              style={styles.input}
+              multiline
+              placeholder={'[Interface]\nPrivateKey = …\nAddress = 10.0.0.2/32\n\n[Peer]\nPublicKey = …'}
+              placeholderTextColor={colors.textDim}
+              value={text}
+              onChangeText={setText}
+              onFocus={() => setFocado(true)}
+              onBlur={() => setFocado(false)}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+
+          <Button
+            label="Escolher arquivo"
+            onPress={onImport}
+            icon={<FolderOpen size={18} color="#fff" weight="bold" />}
+            style={styles.botao}
+          />
+          <Button
+            label="Importar do conteúdo colado"
+            variant="ghost"
+            onPress={onImportColado}
+            icon={<ClipboardText size={18} color={colors.text} weight="bold" />}
+            style={styles.botao}
+          />
+        </View>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  title: { fontSize: 16, fontWeight: '600', marginBottom: 12 },
-  input: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, textAlignVertical: 'top' },
-  btn: { marginTop: 16, backgroundColor: '#007AFF', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
-  btnText: { color: '#fff', fontWeight: '600' },
+  flex: { flex: 1 },
+  container: { flex: 1, paddingTop: spacing.lg },
+  titulo: { ...type.display, fontSize: 26, color: colors.text },
+  subtitulo: {
+    ...type.small,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+    lineHeight: 20,
+  },
+  editorBox: {
+    flex: 1,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  editorFocado: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  editorLabel: { ...type.label, color: colors.textDim, marginBottom: spacing.sm },
+  input: {
+    flex: 1,
+    ...type.mono,
+    color: colors.text,
+    textAlignVertical: 'top',
+    padding: 0,
+    lineHeight: 20,
+  },
+  botao: { marginBottom: spacing.md },
 });

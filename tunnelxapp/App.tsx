@@ -6,9 +6,9 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { StatusBar, useColorScheme, TouchableOpacity } from 'react-native';
+import { StatusBar, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { enableScreens } from 'react-native-screens';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -34,13 +34,32 @@ import type { Tunnel } from './src/models/Tunnel';
 import type { RootStackParamList } from './src/navigation/types';
 import HeaderTitle from './src/components/HeaderTitle';
 import { DotsThreeVertical } from 'phosphor-react-native';
+import { colors } from './src/theme';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 enableScreens(true);
 
+/**
+ * Tema claro, com o cinza do próprio logo como fundo.
+ *
+ * `background` precisa ser o MESMO cinza do Aurora: qualquer diferença aparece
+ * como um flash na transição entre telas, justamente onde o navegador pinta o
+ * próprio fundo antes de a tela montar.
+ */
+const navTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    background: colors.bg,
+    card: colors.bg,
+    text: colors.text,
+    border: colors.border,
+    primary: colors.primary,
+  },
+};
+
 function App() {
-  const isDarkMode = useColorScheme() === 'dark';
   const [ready, setReady] = useState(false);
   const [initialTunnels, setInitialTunnels] = useState<Tunnel[]>([]);
   const [client, setClient] = useState<SessionClient | null>(null);
@@ -107,9 +126,25 @@ function App() {
     // initialMetrics evita insets zerados no primeiro frame -- e justamente
     // nesse frame que a Splash (headerShown: false) fica 3s na tela.
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <NavigationContainer theme={isDarkMode ? DarkTheme : DefaultTheme}>
-        <Stack.Navigator screenOptions={{ headerTitle: () => <HeaderTitle /> }}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <NavigationContainer theme={navTheme}>
+        <Stack.Navigator
+          screenOptions={{
+            headerTitle: () => <HeaderTitle />,
+            // Header sem cor de fundo e sem sombra: a aurora da tela passa por
+            // baixo dele e a página vira uma peça só, em vez de uma barra
+            // colada sobre um fundo diferente.
+            headerTransparent: true,
+            headerShadowVisible: false,
+            headerStyle: { backgroundColor: 'transparent' },
+            headerTintColor: colors.text,
+            // headerTitleStyle só aceita fonte/tamanho/peso/cor — o título em si
+            // é o componente HeaderTitle.
+            headerTitleStyle: { fontSize: 17, fontWeight: '700', color: colors.text },
+            headerBackButtonDisplayMode: 'minimal',
+            contentStyle: { backgroundColor: colors.bg },
+          }}
+        >
           {!ready ? (
             <Stack.Screen name="Splash" component={SplashScreen} options={{ headerShown: false }} />
           ) : !client ? (

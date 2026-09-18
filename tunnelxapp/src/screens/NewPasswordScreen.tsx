@@ -3,16 +3,20 @@ import {
   View,
   Text,
   StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Eye, EyeSlash, ShieldCheck } from 'phosphor-react-native';
+import { ShieldCheck, Check } from 'phosphor-react-native';
 import { changePassword, ApiError } from '../api/client';
+import Screen from '../components/Screen';
+import Card from '../components/Card';
+import Button from '../components/Button';
+import Field from '../components/Field';
+import StepDots from '../components/StepDots';
+import { colors, metrics, radius, spacing, type } from '../theme';
 
 /** O servidor recusa abaixo disso; validar aqui evita a ida à rede para nada. */
 const MINIMO = 6;
@@ -36,14 +40,29 @@ type Props = {
   onSessionLost: () => void;
 };
 
+/** Força aproximada: comprimento + variedade. É dica, nunca trava o envio. */
+function forca(senha: string): { nivel: 0 | 1 | 2 | 3; texto: string; cor: string } {
+  if (senha.length < MINIMO) return { nivel: 0, texto: 'curta demais', cor: colors.textDim };
+  let variedade = 0;
+  if (/[a-z]/.test(senha)) variedade++;
+  if (/[A-Z]/.test(senha)) variedade++;
+  if (/[0-9]/.test(senha)) variedade++;
+  if (/[^A-Za-z0-9]/.test(senha)) variedade++;
+
+  if (senha.length >= 12 && variedade >= 3) return { nivel: 3, texto: 'forte', cor: colors.greenInk };
+  if (senha.length >= 8 && variedade >= 2) return { nivel: 2, texto: 'boa', cor: colors.primary };
+  return { nivel: 1, texto: 'fraca', cor: colors.warning };
+}
+
 export default function NewPasswordScreen({ senhaAtual, onDone, onSessionLost }: Props) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const m = metrics(width);
   const precisaPedirAtual = !senhaAtual;
 
   const [atual, setAtual] = useState('');
   const [nova, setNova] = useState('');
   const [confirma, setConfirma] = useState('');
-  const [verSenha, setVerSenha] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -51,6 +70,7 @@ export default function NewPasswordScreen({ senhaAtual, onDone, onSessionLost }:
   const curta = nova.length > 0 && nova.length < MINIMO;
   const divergem = confirma.length > 0 && nova !== confirma;
   const repetida = nova.length > 0 && nova === senhaEmUso;
+  const f = forca(nova);
 
   const podeSalvar =
     senhaEmUso.length > 0 &&
@@ -80,144 +100,188 @@ export default function NewPasswordScreen({ senhaAtual, onDone, onSessionLost }:
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 },
-        ]}
-        keyboardShouldPersistTaps="handled"
+    <Screen>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.brand}>
-          <ShieldCheck size={44} color="#007AFF" weight="duotone" />
-          <Text style={styles.title}>Crie sua senha</Text>
-          <Text style={styles.subtitle}>
-            A senha que você recebeu é provisória. Escolha uma senha que só você saiba para
-            concluir o primeiro acesso.
-          </Text>
-        </View>
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingHorizontal: m.gutter,
+              paddingTop: insets.top + spacing.xl,
+              paddingBottom: insets.bottom + spacing.xl,
+            },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.brand}>
+            <View style={styles.icone}>
+              <ShieldCheck size={30} color={colors.greenInk} weight="duotone" />
+            </View>
+            <Text style={styles.title}>Crie sua senha</Text>
+            <Text style={styles.subtitle}>
+              A senha que você recebeu é provisória. Escolha uma que só você saiba para concluir o
+              primeiro acesso.
+            </Text>
+            <StepDots total={2} atual={1} style={styles.passos} />
+          </View>
 
-        <View style={styles.form}>
-          {precisaPedirAtual ? (
-            <>
-              <Text style={styles.label}>Senha provisória</Text>
-              <TextInput
-                style={styles.input}
+          <Card label="Nova senha" accent={colors.green}>
+            {precisaPedirAtual ? (
+              <Field
+                label="Senha provisória"
                 value={atual}
                 onChangeText={setAtual}
                 placeholder="A senha recebida no cadastro"
-                secureTextEntry={!verSenha}
+                secret
+                mono
                 autoCapitalize="characters"
                 autoCorrect={false}
               />
-            </>
-          ) : null}
+            ) : null}
 
-          <Text style={styles.label}>Nova senha</Text>
-          <View style={styles.senhaBox}>
-            <TextInput
-              style={styles.senhaInput}
+            <Field
+              label="Nova senha"
               value={nova}
               onChangeText={setNova}
               placeholder={`Ao menos ${MINIMO} caracteres`}
-              secureTextEntry={!verSenha}
+              secret
               autoCapitalize="none"
               autoCorrect={false}
             />
-            <TouchableOpacity
-              style={styles.olho}
-              onPress={() => setVerSenha(v => !v)}
-              accessibilityLabel={verSenha ? 'Ocultar senha' : 'Mostrar senha'}
-            >
-              {verSenha ? <EyeSlash size={20} color="#666" /> : <Eye size={20} color="#666" />}
-            </TouchableOpacity>
-          </View>
 
-          <Text style={styles.label}>Repita a nova senha</Text>
-          <TextInput
-            style={styles.input}
-            value={confirma}
-            onChangeText={setConfirma}
-            placeholder="Digite de novo"
-            secureTextEntry={!verSenha}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="go"
-            onSubmitEditing={salvar}
-          />
+            {/* Medidor de força: três traços que acendem conforme a senha
+                melhora. É informação, não barreira — o envio segue liberado
+                assim que o mínimo do servidor é atendido. */}
+            {nova.length > 0 ? (
+              <View style={styles.medidor}>
+                <View style={styles.barras}>
+                  {[1, 2, 3].map(n => (
+                    <View
+                      key={n}
+                      style={[
+                        styles.barra,
+                        f.nivel >= n ? { backgroundColor: f.cor } : null,
+                      ]}
+                    />
+                  ))}
+                </View>
+                <Text style={[styles.forcaTexto, { color: f.cor }]}>{f.texto}</Text>
+              </View>
+            ) : null}
 
-          {/* Aviso enquanto digita: errar a confirmação é o tropeço mais comum
-              aqui, e descobrir isso só no toque do botão irrita. */}
-          {curta ? (
-            <Text style={styles.dica}>A senha precisa ter ao menos {MINIMO} caracteres.</Text>
-          ) : null}
-          {repetida ? (
-            <Text style={styles.dica}>Escolha uma senha diferente da provisória.</Text>
-          ) : null}
-          {divergem ? <Text style={styles.dica}>As duas senhas não estão iguais.</Text> : null}
+            <Field
+              label="Repita a nova senha"
+              value={confirma}
+              onChangeText={setConfirma}
+              placeholder="Digite de novo"
+              secret
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="go"
+              onSubmitEditing={salvar}
+              containerStyle={styles.campoConfirma}
+            />
 
-          {erro ? <Text style={styles.erro}>{erro}</Text> : null}
+            {/* Aviso enquanto digita: errar a confirmação é o tropeço mais comum
+                aqui, e descobrir isso só no toque do botão irrita. */}
+            {curta ? (
+              <Text style={styles.dica}>A senha precisa ter ao menos {MINIMO} caracteres.</Text>
+            ) : null}
+            {repetida ? (
+              <Text style={styles.dica}>Escolha uma senha diferente da provisória.</Text>
+            ) : null}
+            {divergem ? <Text style={styles.dica}>As duas senhas não estão iguais.</Text> : null}
+            {!divergem && confirma.length > 0 && nova === confirma && !repetida && !curta ? (
+              <View style={styles.confere}>
+                <Check size={13} color={colors.greenInk} weight="bold" />
+                <Text style={styles.confereTexto}>As senhas conferem</Text>
+              </View>
+            ) : null}
+            {erro ? <Text style={styles.erro}>{erro}</Text> : null}
 
-          <TouchableOpacity
-            style={[styles.botao, !podeSalvar && styles.botaoInativo]}
-            onPress={salvar}
-            disabled={!podeSalvar}
-          >
-            {carregando ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.botaoTexto}>Salvar e entrar</Text>
-            )}
-          </TouchableOpacity>
+            <Button
+              label="Salvar e entrar"
+              variant="success"
+              onPress={salvar}
+              disabled={!podeSalvar}
+              loading={carregando}
+              style={styles.botao}
+            />
+          </Card>
 
           <Text style={styles.ajuda}>
             Depois disso a senha provisória deixa de valer. Você passa a entrar com o seu CPF e a
             senha que acabou de criar.
           </Text>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  content: { paddingHorizontal: 24, flexGrow: 1, justifyContent: 'center' },
-  brand: { alignItems: 'center', marginBottom: 24 },
-  title: { fontSize: 24, fontWeight: '700', color: '#111', marginTop: 12 },
-  subtitle: { fontSize: 14, color: '#666', marginTop: 8, textAlign: 'center', lineHeight: 20 },
-  form: { gap: 4 },
-  label: { fontSize: 13, fontWeight: '600', color: '#333', marginBottom: 6, marginTop: 10 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16 },
-  senhaBox: {
+  flex: { flex: 1 },
+  content: { flexGrow: 1, justifyContent: 'center' },
+  brand: { alignItems: 'center', marginBottom: spacing.xl },
+  icone: {
+    width: 68,
+    height: 68,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.greenSoft,
+    borderWidth: 1,
+    borderColor: colors.green,
+  },
+  title: { ...type.title, color: colors.text, marginTop: spacing.lg },
+  subtitle: {
+    ...type.small,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  passos: { marginTop: spacing.lg },
+  medidor: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
+    gap: spacing.md,
+    marginTop: -spacing.xs,
+    marginBottom: spacing.md,
   },
-  senhaInput: { flex: 1, padding: 12, fontSize: 16 },
-  olho: { paddingHorizontal: 12, paddingVertical: 10 },
-  dica: { fontSize: 12, color: '#B45309', marginTop: 8 },
+  barras: { flexDirection: 'row', gap: 4, flex: 1 },
+  barra: {
+    flex: 1,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+  },
+  forcaTexto: { ...type.tiny, fontWeight: '700' },
+  campoConfirma: { marginBottom: spacing.sm },
+  dica: { ...type.tiny, color: colors.warning, marginBottom: spacing.sm, fontWeight: '500' },
+  confere: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: spacing.sm },
+  confereTexto: { ...type.tiny, color: colors.greenInk, fontWeight: '600' },
   erro: {
-    color: '#B00020',
-    backgroundColor: '#FDECEA',
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 12,
-    fontSize: 13,
+    ...type.small,
+    color: colors.danger,
+    backgroundColor: colors.dangerSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.danger,
+    borderRadius: radius.sm,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
   },
-  botao: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 20,
+  botao: { marginTop: spacing.sm },
+  ajuda: {
+    ...type.tiny,
+    color: colors.textDim,
+    textAlign: 'center',
+    marginTop: spacing.xl,
+    lineHeight: 18,
+    fontWeight: '500',
   },
-  botaoInativo: { backgroundColor: '#A9C9F0' },
-  botaoTexto: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  ajuda: { fontSize: 12, color: '#888', textAlign: 'center', marginTop: 16, lineHeight: 18 },
 });
