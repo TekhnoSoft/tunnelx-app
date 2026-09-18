@@ -68,6 +68,12 @@ object VpnManager {
 
     var ok = false
     try {
+      // Antes do UP: o foreground service e o que impede o processo de ser morto
+      // ao sair do recents, e com ele o GoBackend.VpnService que segura o TUN.
+      // Subir depois deixaria uma janela em que o tunel ja esta de pe e ainda
+      // desprotegido. Se o setState falhar, o finally derruba os dois.
+      TunnelKeepAliveService.start(ctx, id)
+
       backend(ctx).setState(tunnelFor(ctx, id), Tunnel.State.UP, cfg)
       ok = true
       activeId = id
@@ -121,6 +127,8 @@ object VpnManager {
       } catch (t: Throwable) {
         Log.w(TAG, "stopService(TunnelXVpnService) falhou", t)
       }
+      // Sem tunel nao ha o que preservar: a notificacao permanente some junto.
+      TunnelKeepAliveService.stop(app)
 
       activeId = null
       tunnel = null

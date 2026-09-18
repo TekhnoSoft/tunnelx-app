@@ -38,6 +38,20 @@
         android:exported="false"
         android:excludeFromRecents="true"
         android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+      <!-- Mantem o processo vivo enquanto o tunel esta de pe. Nao e VpnService:
+           nao estabelece TUN nenhum e nao disputa a eleicao de always-on VPN do
+           pacote (ver o comentario abaixo). stopWithTask=false porque sair do
+           recents e justamente o caso que ele existe para atravessar. -->
+      <service
+        android:name=".TunnelKeepAliveService"
+        android:exported="false"
+        android:stopWithTask="false"
+        android:foregroundServiceType="specialUse">
+        <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="vpn_tunnel_supervision" />
+      </service>
+
       <!-- Sem intent-filter android.net.VpnService: quem estabelece o TUN e o
            GoBackend.VpnService do AAR oficial. Com o filtro, este servico competia
            para ser eleito o VpnService do pacote (always-on VPN, reboot, retomada de
