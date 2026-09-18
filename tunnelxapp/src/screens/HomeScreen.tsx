@@ -4,7 +4,6 @@ import {
   FlatList,
   StyleSheet,
   Text,
-  Modal,
   Pressable,
   Alert,
   Platform,
@@ -14,6 +13,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import TunnelListItem from '../components/TunnelListItem';
 import Screen from '../components/Screen';
 import ConnectionOrb from '../components/ConnectionOrb';
+import BottomSheet from '../components/BottomSheet';
 import type { Tunnel } from '../models/Tunnel';
 import { saveTunnels, removeTunnel, loadTunnels } from '../storage/tunnels';
 import * as WireGuard from '../native/WireGuard';
@@ -307,33 +307,30 @@ export default function HomeScreen({ navigation, initialTunnels = [] }: Props) {
         <Plus size={26} color="#fff" weight="bold" />
       </Pressable>
 
-      {/* Bottom Sheet Modal */}
-      <Modal visible={showSheet} transparent animationType="slide" onRequestClose={() => setShowSheet(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setShowSheet(false)} />
-        <View style={[styles.sheet, { paddingBottom: m.insets.bottom + spacing.xl }]}>
-          <View style={styles.puxador} />
-          <Text style={styles.sheetTitle}>Adicionar túnel</Text>
-
-          <SheetOption
-            icon={<FileArrowDown size={20} color={colors.primary} weight="duotone" />}
-            title="Criar a partir de um arquivo"
-            desc="Importar um .conf do aparelho"
-            onPress={onCreateFromFile}
-          />
-          <SheetOption
-            icon={<QrCode size={20} color={colors.greenInk} weight="duotone" />}
-            title="Ler código QR"
-            desc="Apontar a câmera para a configuração"
-            onPress={onReadQR}
-          />
-          <SheetOption
-            icon={<PencilSimple size={20} color={colors.primary} weight="duotone" />}
-            title="Criar do zero"
-            desc="Preencher interface e pares à mão"
-            onPress={onCreateFromScratch}
-          />
-        </View>
-      </Modal>
+      <BottomSheet
+        visible={showSheet}
+        onClose={() => setShowSheet(false)}
+        title="Adicionar túnel"
+      >
+        <SheetOption
+          icon={<FileArrowDown size={20} color={colors.primary} weight="duotone" />}
+          title="Criar a partir de um arquivo"
+          desc="Importar um .conf do aparelho"
+          onPress={onCreateFromFile}
+        />
+        <SheetOption
+          icon={<QrCode size={20} color={colors.greenInk} weight="duotone" />}
+          title="Ler código QR"
+          desc="Apontar a câmera para a configuração"
+          onPress={onReadQR}
+        />
+        <SheetOption
+          icon={<PencilSimple size={20} color={colors.primary} weight="duotone" />}
+          title="Criar do zero"
+          desc="Preencher interface e pares à mão"
+          onPress={onCreateFromScratch}
+        />
+      </BottomSheet>
     </Screen>
   );
 }
@@ -411,36 +408,6 @@ const styles = StyleSheet.create({
     borderColor: colors.primarySoft,
   },
 
-  backdrop: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: colors.scrim,
-  },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderStrong,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.md,
-  },
-  puxador: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.borderStrong,
-    marginBottom: spacing.lg,
-  },
-  sheetTitle: { ...type.label, color: colors.textDim, marginBottom: spacing.md },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
