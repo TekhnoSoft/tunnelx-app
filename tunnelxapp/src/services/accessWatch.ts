@@ -139,6 +139,11 @@ export function watchAccess({ onEvento }: Opcoes): () => void {
 
   timer = setInterval(conferir, INTERVALO_MS);
 
+  // Confere já, sem esperar o primeiro intervalo: é esta chamada que corrige
+  // uma Home que abriu vazia porque a sincronização da entrada falhou ou
+  // terminou depois da tela montar.
+  conferir();
+
   // Voltar do segundo plano é o momento mais provável de haver novidade — o
   // telefone pode ter passado horas na tela de bloqueio.
   const aoMudarEstado = (s: AppStateStatus) => {
