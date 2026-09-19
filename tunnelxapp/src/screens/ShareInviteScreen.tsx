@@ -19,9 +19,16 @@ import { useWindowDimensions } from 'react-native';
 
 type Props = {
   /** Já tem conta: leva para o login guardando o convite. */
-  onEntrar: (token: string) => void;
+  onEntrar?: (token: string) => void;
   /** Não tem conta: leva para o cadastro guardando o convite. */
-  onCadastrar: (token: string) => void;
+  onCadastrar?: (token: string) => void;
+  /**
+   * Quem chegou aqui JÁ logado — pelo ícone de leitura no topo da Home.
+   *
+   * Aqui não há login nem cadastro pelo caminho: o aceite acontece na hora.
+   * Quando esta função existe, ela substitui as outras duas.
+   */
+  onAceitar?: (token: string) => Promise<void>;
   onVoltar: () => void;
 };
 
@@ -39,13 +46,14 @@ type Props = {
  * O QR carrega um token, não a configuração do WireGuard: é o servidor que
  * confere a vaga, aplica o prazo e entrega o acesso.
  */
-export default function ShareInviteScreen({ onEntrar, onCadastrar, onVoltar }: Props) {
+export default function ShareInviteScreen({ onEntrar, onCadastrar, onAceitar, onVoltar }: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const m = metrics(width);
 
   const [convite, setConvite] = useState<{ token: string; dados: SharePreview } | null>(null);
   const [verificando, setVerificando] = useState(false);
+  const [aceitando, setAceitando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
   const onCode = useCallback(async (texto: string) => {
@@ -108,7 +116,7 @@ export default function ShareInviteScreen({ onEntrar, onCadastrar, onVoltar }: P
 
           <Button label="Ler outro QR" onPress={tentarDeNovo} style={styles.botao} />
           <Pressable onPress={onVoltar} hitSlop={8} style={styles.voltarTexto}>
-            <Text style={styles.voltarLabel}>Voltar para a entrada</Text>
+            <Text style={styles.voltarLabel}>{onAceitar ? 'Voltar' : 'Voltar para a entrada'}</Text>
           </Pressable>
         </ScrollView>
       </Screen>
@@ -156,17 +164,39 @@ export default function ShareInviteScreen({ onEntrar, onCadastrar, onVoltar }: P
             </Text>
           </View>
 
-          <Button
-            label="Criar minha conta e entrar"
-            onPress={() => onCadastrar(token)}
-            style={styles.botao}
-          />
-          <Button
-            label="Já tenho conta"
-            variant="ghost"
-            onPress={() => onEntrar(token)}
-            style={styles.botao}
-          />
+          {onAceitar ? (
+            <Button
+              label="Entrar nesta conexão"
+              loading={aceitando}
+              onPress={async () => {
+                setAceitando(true);
+                try {
+                  await onAceitar(token);
+                } catch (e: any) {
+                  // O convite pode ter expirado ou o túnel enchido entre a
+                  // leitura e o toque. Mostra o motivo em vez de voltar calado.
+                  setErro(e?.message || 'Não foi possível entrar nesta conexão.');
+                } finally {
+                  setAceitando(false);
+                }
+              }}
+              style={styles.botao}
+            />
+          ) : (
+            <>
+              <Button
+                label="Criar minha conta e entrar"
+                onPress={() => onCadastrar?.(token)}
+                style={styles.botao}
+              />
+              <Button
+                label="Já tenho conta"
+                variant="ghost"
+                onPress={() => onEntrar?.(token)}
+                style={styles.botao}
+              />
+            </>
+          )}
 
           <Pressable onPress={onVoltar} hitSlop={8} style={styles.voltarTexto}>
             <Text style={styles.voltarLabel}>Cancelar</Text>

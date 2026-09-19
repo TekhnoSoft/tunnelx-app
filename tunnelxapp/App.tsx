@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, StatusBar, TouchableOpacity } from 'react-native';
+import { Alert, StatusBar, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { enableScreens } from 'react-native-screens';
@@ -45,7 +45,7 @@ import {
 import type { Tunnel } from './src/models/Tunnel';
 import type { RootStackParamList } from './src/navigation/types';
 import HeaderTitle from './src/components/HeaderTitle';
-import { DotsThreeVertical } from 'phosphor-react-native';
+import { DotsThreeVertical, QrCode } from 'phosphor-react-native';
 import { colors } from './src/theme';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -492,9 +492,26 @@ function App() {
                 options={({ navigation }) => ({
                   title: 'TunnelX',
                   headerRight: () => (
-                    <TouchableOpacity style={{ paddingHorizontal: 8, paddingVertical: 6 }} onPress={() => navigation.navigate('Settings')}>
-                      <DotsThreeVertical size={20} />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      {/* Ler um convite estando logado: quem já tem conta não
+                          passa mais pela tela de entrada, e sem isto o único
+                          caminho para entrar na conexão de alguém seria sair
+                          da própria conta. */}
+                      <TouchableOpacity
+                        style={{ paddingHorizontal: 8, paddingVertical: 6 }}
+                        onPress={() => navigation.navigate('ShareInvite')}
+                        accessibilityRole="button"
+                        accessibilityLabel="Entrar em uma conexão compartilhada"
+                      >
+                        <QrCode size={20} color={colors.greenInk} weight="duotone" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{ paddingHorizontal: 8, paddingVertical: 6 }}
+                        onPress={() => navigation.navigate('Settings')}
+                      >
+                        <DotsThreeVertical size={20} />
+                      </TouchableOpacity>
+                    </View>
                   ),
                 })}
               >
@@ -517,6 +534,38 @@ function App() {
               <Stack.Screen name="TunnelForm" component={TunnelFormScreen} options={{ title: 'TunnelX' }} />
               <Stack.Screen name="Settings" options={{ title: 'Definições' }}>
                 {(props) => <SettingsScreen {...props} client={client} onSignOut={sair} />}
+              </Stack.Screen>
+              <Stack.Screen
+                name="ShareInvite"
+                options={{ title: 'Acesso provisionado', headerShown: false }}
+              >
+                {({ navigation }) => (
+                  <ShareInviteScreen
+                    // Já autenticado: aceita na hora, sem passar por login nem
+                    // cadastro. É a mesma tela, com o caminho do meio removido.
+                    onAceitar={async (token) => {
+                      const r = await acceptShare(token);
+                      // Sincroniza ANTES de voltar: a Home recarrega do
+                      // armazenamento ao ganhar foco, então o túnel novo precisa
+                      // já estar lá — senão ela aparece sem ele até o próximo
+                      // ciclo e parece que o convite não funcionou.
+                      try {
+                        const { syncConnections } = await import('./src/services/sync');
+                        const sync = await syncConnections();
+                        setInitialTunnels(sync.tunnels);
+                      } catch (e) {
+                        console.warn('[App] falha ao sincronizar após aceitar o convite', e);
+                      }
+                      await conferirAcesso();
+                      navigation.goBack();
+                      Alert.alert(
+                        'Acesso liberado',
+                        `Você entrou na conexão de ${r.share.owner_name}. ${r.share.expires_text}.`
+                      );
+                    }}
+                    onVoltar={() => navigation.goBack()}
+                  />
+                )}
               </Stack.Screen>
               <Stack.Screen name="QRScan" component={QRScanScreen} options={{ title: 'Ler QR' }} />
               <Stack.Screen name="ConfImport" component={ConfImportScreen} options={{ title: 'Importar .conf' }} />

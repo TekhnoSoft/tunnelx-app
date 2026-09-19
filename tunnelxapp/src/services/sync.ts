@@ -31,6 +31,8 @@ export function isSyncedTunnel(id: string): boolean {
 export type SyncResult = {
   imported: number;
   pending: number;
+  /** Túneis que sumiram do servidor e foram tirados do aparelho. */
+  removed: number;
   failed: { name: string; reason: string }[];
   tunnels: Tunnel[];
 };
@@ -86,7 +88,7 @@ export async function syncConnections(): Promise<SyncResult> {
   const atuais = await loadTunnels();
   const porId = new Map(atuais.map(t => [t.id, t]));
 
-  const resultado: SyncResult = { imported: 0, pending: 0, failed: [], tunnels: atuais };
+  const resultado: SyncResult = { imported: 0, pending: 0, removed: 0, failed: [], tunnels: atuais };
 
   for (const conn of conexoes) {
     if (!conn.ready || !conn.config) {
@@ -123,6 +125,37 @@ export async function syncConnections(): Promise<SyncResult> {
       // Uma conexão com defeito não pode impedir a importação das outras.
       resultado.failed.push({ name: nameFor(conn), reason: e?.message || 'falha desconhecida' });
     }
+  }
+
+  /*
+   * O que o servidor não lista mais sai do aparelho.
+   *
+   * Sem isto a sincronização só somava, e a revogação não valia nada: o titular
+   * tirava o convidado, o servidor parava de mandar aquele túnel, e ele
+   * continuava na lista do convidado — com a configuração em cache, ainda
+   * funcionando. O mesmo valia para uma conexão excluída no painel.
+   *
+   * Só mexe no que veio da conta (`isSyncedTunnel`). Túnel importado à mão, por
+   * arquivo ou QR do .conf, é do usuário: o servidor nunca soube dele e não tem
+   * autoridade para apagá-lo.
+   *
+   * Um túnel removido enquanto está ligado é derrubado antes de sair da lista —
+   * caso contrário o acesso cortado continuaria de pé até o aparelho reiniciar.
+   */
+  const noServidor = new Set(conexoes.map((c) => tunnelIdFor(c.id)));
+
+  for (const t of atuais) {
+    if (!isSyncedTunnel(t.id) || noServidor.has(t.id)) continue;
+
+    try {
+      if ((await WireGuard.status(t.id)) === 'up') await WireGuard.stop(t.id);
+    } catch (e) {
+      // Falhar em derrubar não pode impedir a remoção da lista.
+      console.warn('[sync] não foi possível desligar o túnel removido', t.id, e);
+    }
+
+    porId.delete(t.id);
+    resultado.removed += 1;
   }
 
   const proximos = Array.from(porId.values());

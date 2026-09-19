@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Switch, TouchableOpacity, Pressable } from 'react-native';
 import type { Tunnel } from '../models/Tunnel';
-import { PencilSimple, Trash, CaretRight, ShareNetwork, UsersThree } from 'phosphor-react-native';
+import { PencilSimple, Trash, CaretRight, ShareNetwork, UsersThree, SignOut } from 'phosphor-react-native';
 import { brand, colors, radius, shadow, spacing, type } from '../theme';
 
 type Props = {
@@ -16,6 +16,15 @@ type Props = {
   onDelete: (tunnel: Tunnel) => void;
   /** Só chega em túnel próprio de plano compartilhável — ver `podeCompartilhar`. */
   onShare?: (tunnel: Tunnel) => void;
+  /**
+   * Devolver a vaga de um túnel emprestado.
+   *
+   * Não é o mesmo que excluir: excluir tiraria o túnel só deste aparelho e o
+   * convite continuaria valendo no servidor, ocupando a vaga do plano do
+   * titular. Sair desfaz o vínculo — e é o que libera a pessoa para entrar em
+   * outra conexão provisionada.
+   */
+  onLeave?: (tunnel: Tunnel) => void;
 };
 
 export default function TunnelListItem({
@@ -27,6 +36,7 @@ export default function TunnelListItem({
   onEdit,
   onDelete,
   onShare,
+  onLeave,
 }: Props) {
   const firstPeer = tunnel.peers?.[0];
   const ativo = isActive ?? !!tunnel.active;
@@ -44,10 +54,35 @@ export default function TunnelListItem({
    */
   const podeCompartilhar = !!onShare && !emprestado && !!origem?.slots?.can_share;
 
+  /*
+   * Túnel emprestado é só de leitura.
+   *
+   * O convidado usa a conexão — liga e desliga — e nada mais. Editar, excluir,
+   * compartilhar e abrir os detalhes são atos sobre o túnel de OUTRA pessoa:
+   *
+   *   editar    mexeria numa configuração que o titular paga e que o
+   *             provisionador reescreve, e a edição sumiria na sincronização
+   *             seguinte sem nunca ter chegado ao servidor;
+   *   excluir   só tiraria o túnel deste aparelho — o convite continuaria ativo
+   *             ocupando a vaga do plano, e o túnel voltaria na sincronização;
+   *   detalhar  expõe chave, endpoint e estatísticas de um túnel alheio.
+   *
+   * O que sobra é usar (a chave de ligar) e SAIR — devolver a vaga, que é uma
+   * ação sobre o próprio vínculo e não sobre o túnel do outro.
+   */
+  const somenteLeitura = emprestado;
+
   return (
     <Pressable
-      onPress={() => onPress(tunnel)}
-      style={({ pressed }) => [styles.row, ativo && styles.rowAtiva, pressed && styles.pressed]}
+      // Sem detalhe em túnel alheio: `undefined` (e não um callback vazio) para
+      // o Pressable também não responder ao toque com o feedback de pressão.
+      onPress={somenteLeitura ? undefined : () => onPress(tunnel)}
+      disabled={somenteLeitura}
+      style={({ pressed }) => [
+        styles.row,
+        ativo && styles.rowAtiva,
+        pressed && !somenteLeitura && styles.pressed,
+      ]}
     >
       {/* Barra lateral acesa: o túnel ativo se destaca na lista sem depender de
           ler o estado da chave, que fica na outra ponta da linha. */}
@@ -111,6 +146,22 @@ export default function TunnelListItem({
           trackColor={{ false: colors.border, true: colors.green }}
           thumbColor={ativo ? colors.greenInk : '#F4F4F5'}
         />
+        {/* Em túnel emprestado a linha de ações some inteira: sobra a chave
+            de ligar/desligar, que é o que o convidado de fato pode fazer. */}
+        {somenteLeitura ? (
+          onLeave ? (
+            <TouchableOpacity
+              style={styles.sair}
+              onPress={() => onLeave(tunnel)}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Sair desta conexão compartilhada"
+            >
+              <SignOut size={14} color={colors.danger} weight="bold" />
+              <Text style={styles.sairTexto}>Sair</Text>
+            </TouchableOpacity>
+          ) : null
+        ) : (
         <View style={styles.icones}>
           {podeCompartilhar ? (
             <TouchableOpacity
@@ -131,6 +182,7 @@ export default function TunnelListItem({
           </TouchableOpacity>
           <CaretRight size={14} color={colors.textDim} />
         </View>
+        )}
       </View>
     </Pressable>
   );
@@ -193,4 +245,19 @@ const styles = StyleSheet.create({
   actions: { alignItems: 'flex-end', gap: spacing.sm },
   icones: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   iconBtn: { padding: spacing.xs },
+
+  // Botão com rótulo, e não só um ícone: sair de uma conexão de outra pessoa é
+  // irreversível sem um convite novo, e um ícone solto seria adivinhação.
+  sair: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.danger,
+    backgroundColor: colors.dangerSoft,
+  },
+  sairTexto: { fontSize: 11, fontWeight: '800', color: colors.danger, letterSpacing: 0.3 },
 });

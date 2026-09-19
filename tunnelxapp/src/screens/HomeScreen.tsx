@@ -242,6 +242,8 @@ export default function HomeScreen({
   };
 
   const onPress = (tun: Tunnel) => {
+    // Detalhe expõe chave, endpoint e estatísticas — de um túnel que não é dele.
+    if (tun.origin?.shared) return;
     navigation.navigate('TunnelDetail', { tunnel: tun });
   };
 
@@ -278,42 +280,16 @@ export default function HomeScreen({
   }, []);
 
   /*
-   * Excluir — e o que "excluir" significa depende de quem é o túnel.
+   * Excluir — só faz sentido em túnel próprio.
    *
-   * Num túnel emprestado, apagar só do aparelho não resolve nada: o convite
-   * continua ativo no servidor, ocupando uma vaga do plano do titular, e a
-   * próxima sincronização traz o túnel de volta. Sair de verdade é devolver a
-   * vaga — e só então remover daqui.
+   * O card do túnel emprestado nem mostra o botão (ver TunnelListItem), mas a
+   * guarda fica aqui também: apagar um túnel de outra pessoa só o tiraria deste
+   * aparelho, enquanto o convite seguiria ativo ocupando a vaga do plano do
+   * titular — e a próxima sincronização traria o túnel de volta. Quem encerra o
+   * acesso é o titular, ou o prazo do convite.
    */
   const onExcluir = useCallback((t: Tunnel) => {
-    const emprestado = !!t.origin?.shared;
-    const shareId = t.origin?.shareId;
-
-    if (emprestado && shareId) {
-      const dono = t.origin?.ownerName || 'o titular';
-      Alert.alert(
-        'Sair desta conexão',
-        `Você deixará de usar a conexão de ${dono} e a vaga ficará livre. Para voltar, será preciso um novo convite.`,
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Sair',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                await leaveShare(shareId);
-              } catch (e: any) {
-                // O convite pode já ter sido revogado pelo titular. Não é
-                // motivo para manter o túnel na lista.
-                console.warn('[Home] falha ao sair do túnel compartilhado', e);
-              }
-              setTunnels(await removeTunnel(t.id));
-            },
-          },
-        ]
-      );
-      return;
-    }
+    if (t.origin?.shared) return;
 
     Alert.alert('Excluir túnel', `Deseja excluir "${t.name}"?`, [
       { text: 'Cancelar', style: 'cancel' },
@@ -327,6 +303,49 @@ export default function HomeScreen({
     ]);
   }, []);
 
+  /*
+   * Sair de uma conexão provisionada.
+   *
+   * Desfaz o vínculo no SERVIDOR — é isso que devolve a vaga ao plano do
+   * titular e libera a pessoa para aceitar outro convite. Depois sincroniza: o
+   * túnel some da lista porque o servidor deixa de listá-lo, e não porque o app
+   * o apagou por conta própria.
+   */
+  const onSair = useCallback(async (t: Tunnel) => {
+    const shareId = t.origin?.shareId;
+    if (!shareId) return;
+
+    const dono = t.origin?.ownerName || 'o titular';
+    Alert.alert(
+      'Sair desta conexão',
+      `Você deixará de usar a conexão de ${dono} e a vaga ficará livre. Para voltar, será preciso um convite novo.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sair',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await leaveShare(shareId);
+            } catch (e: any) {
+              // O titular pode ter revogado antes. O vínculo já não existe, e
+              // sincronizar abaixo resolve do mesmo jeito.
+              console.warn('[Home] falha ao sair da conexão compartilhada', e);
+            }
+            try {
+              const r = await syncConnections();
+              setTunnels(r.tunnels);
+            } catch {
+              // Sem rede: tira da lista local para a tela não mentir. A próxima
+              // sincronização reconcilia com o servidor.
+              setTunnels(await removeTunnel(t.id));
+            }
+          },
+        },
+      ]
+    );
+  }, []);
+
   const renderItem = ({ item }: { item: Tunnel }) => (
     <TunnelListItem
       tunnel={item}
@@ -336,6 +355,7 @@ export default function HomeScreen({
       onPress={onPress}
       onEdit={(t) => navigation.navigate('TunnelForm', { tunnel: t })}
       onShare={(t) => setCompartilhando(t)}
+      onLeave={onSair}
       onDelete={onExcluir}
     />
   );
