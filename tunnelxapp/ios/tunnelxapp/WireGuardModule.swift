@@ -367,6 +367,53 @@ class WireGuardModule: RCTEventEmitter {
     }
   }
 
+  /// Bytes realmente trafegados, perguntados ao provider.
+  ///
+  /// A tela de detalhe mostrava um contador FABRICADO (somava 0,05 MiB/s
+  /// enquanto estivesse ligado). Quem implementa o tunel e a extensao, e so ela
+  /// sabe o volume real -- que vem do proprio WireGuard no formato uapi
+  /// (`rx_bytes=`/`tx_bytes=`), somado sobre todos os peers.
+  ///
+  /// Resolve `null` quando nao ha sessao ativa: a tela deve mostrar traco, e
+  /// nunca um numero inventado.
+  @objc(getStats:resolver:rejecter:)
+  func getStats(
+    id: String,
+    resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    guard let session = manager?.connection as? NETunnelProviderSession,
+          session.status == .connected,
+          let payload = "stats".data(using: .utf8) else {
+      resolve(nil)
+      return
+    }
+
+    do {
+      try session.sendProviderMessage(payload) { response in
+        guard let response = response,
+              let texto = String(data: response, encoding: .utf8) else {
+          resolve(nil)
+          return
+        }
+        var rx: Int64 = 0
+        var tx: Int64 = 0
+        for linha in texto.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+          let partes = linha.split(separator: "=", maxSplits: 1)
+          guard partes.count == 2, let valor = Int64(partes[1].trimmingCharacters(in: .whitespaces)) else { continue }
+          switch partes[0].trimmingCharacters(in: .whitespaces) {
+          case "rx_bytes": rx += valor
+          case "tx_bytes": tx += valor
+          default: break
+          }
+        }
+        resolve(["rxBytes": rx, "txBytes": tx])
+      }
+    } catch {
+      resolve(nil)
+    }
+  }
+
   /// No Android isto abre o dialogo de consentimento de VPN. No iOS o consentimento
   /// acontece no `saveToPreferences` (dentro de `start`), entao aqui nada a fazer.
   @objc(prepareVpn:rejecter:)

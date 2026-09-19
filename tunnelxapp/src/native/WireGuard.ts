@@ -21,6 +21,7 @@ type WireGuardModuleType = {
   prepareVpn?: () => Promise<boolean>;
   isConnected?: () => Promise<boolean>;
   getVpnState?: () => Promise<{ connected: boolean; tunnelId: string | null }>;
+  getStats?: (id: string) => Promise<{ rxBytes: number; txBytes: number } | null>;
 };
 
 const NativeWireGuard: WireGuardModuleType | undefined =
@@ -123,4 +124,20 @@ export function isNativeAvailable(): boolean {
 export async function prepareVpn(): Promise<boolean> {
   if (!NativeWireGuard || !NativeWireGuard.prepareVpn) return true;
   return NativeWireGuard.prepareVpn();
+}
+
+/**
+ * Bytes realmente trafegados pelo tunel, ou `null` quando nao da para saber.
+ *
+ * `null` e uma resposta legitima -- sem sessao ativa nao existe medicao. Quem
+ * chama deve mostrar traco, nunca zero nem um valor estimado: a tela de detalhe
+ * ja exibiu um contador fabricado e isso nao pode voltar.
+ */
+export async function getStats(id: string): Promise<{ rxBytes: number; txBytes: number } | null> {
+  if (!NativeWireGuard?.getStats) return null;
+  try {
+    return await NativeWireGuard.getStats(id);
+  } catch {
+    return null;
+  }
 }

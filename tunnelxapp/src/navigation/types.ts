@@ -2,6 +2,8 @@ import type { Tunnel } from '../models/Tunnel';
 
 export type RootStackParamList = {
   Splash: undefined;
+  /** Declaracao de dados da VPN, exigida pela diretriz 5.4 antes de usar o servico. */
+  VpnDisclosure: undefined;
   Login: undefined;
   Register: undefined;
   NewPassword: undefined;

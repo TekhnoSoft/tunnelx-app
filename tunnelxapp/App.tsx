@@ -13,6 +13,7 @@ import { enableScreens } from 'react-native-screens';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import SplashScreen from './src/screens/SplashScreen';
+import VpnDisclosureScreen from './src/screens/VpnDisclosureScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import TunnelDetailScreen from './src/screens/TunnelDetailScreen';
 import TunnelFormScreen from './src/screens/TunnelFormScreen';
@@ -127,6 +128,28 @@ function App() {
    * primeiro ajuste, e divergir aqui significa liberar o tunel de quem parou de
    * pagar (ou bloquear quem esta em dia).
    */
+  /*
+   * Declaração de dados da VPN (diretriz 5.4).
+   *
+   * `null` = ainda lendo o disco. Precisa ser o PRIMEIRO portão depois da
+   * Splash: a Apple exige a declaração antes de qualquer ação de compra ou de
+   * uso do serviço, então ela vem antes do login e antes das telas de plano.
+   */
+  const [declaracaoAceita, setDeclaracaoAceita] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const { aceitouDeclaracao } = await import('./src/storage/disclosure');
+      const ok = await aceitouDeclaracao();
+      if (vivo) setDeclaracaoAceita(ok);
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+
   const [acesso, setAcesso] = useState<Access | null>(null);
   const [verificandoAcesso, setVerificandoAcesso] = useState(false);
   const [planoEscolhido, setPlanoEscolhido] = useState<ApiPlan | null>(null);
@@ -342,8 +365,28 @@ function App() {
             contentStyle: { backgroundColor: colors.bg },
           }}
         >
-          {!ready ? (
+          {!ready || declaracaoAceita === null ? (
             <Stack.Screen name="Splash" component={SplashScreen} options={{ headerShown: false }} />
+          ) : !declaracaoAceita ? (
+            /*
+             * Declaração de dados da VPN, antes de tudo.
+             *
+             * A diretriz 5.4 exige a declaração "prior to any user action to
+             * purchase or otherwise use the service" — por isso ela vem antes
+             * do login e antes das telas de plano, e não apenas antes de ligar
+             * o túnel.
+             */
+            <Stack.Screen name="VpnDisclosure" options={{ headerShown: false }}>
+              {() => (
+                <VpnDisclosureScreen
+                  onAceitar={async () => {
+                    const { registrarAceite } = await import('./src/storage/disclosure');
+                    await registrarAceite();
+                    setDeclaracaoAceita(true);
+                  }}
+                />
+              )}
+            </Stack.Screen>
           ) : !client ? (
             // Sem sessão não há o que mostrar: as conexões pertencem a uma conta.
             // A exceção é o convite: ele é lido ANTES de qualquer cadastro, para

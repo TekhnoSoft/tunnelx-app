@@ -10,7 +10,7 @@ import {
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { PencilSimple, Trash, ArrowDown, ArrowUp } from 'phosphor-react-native';
-import { removeTunnel, upsertTunnel } from '../storage/tunnels';
+import { removeTunnel } from '../storage/tunnels';
 import { isEditableTunnel } from '../models/Tunnel';
 import * as WireGuard from '../native/WireGuard';
 import Screen from '../components/Screen';
@@ -45,37 +45,45 @@ function Linha({
 export default function TunnelDetailScreen({ navigation, route }: Props) {
   const m = useLayout();
   const { tunnel } = route.params;
-  const [stats, setStats] = useState(tunnel.stats ?? { rxMiB: 0, txMiB: 0 });
+  /*
+   * Volume trafegado: medido pelo túnel, nunca estimado.
+   *
+   * Este bloco FABRICAVA os números — somava 0,05 MiB/s de rx e de tx a cada
+   * segundo enquanto a VPN estivesse ligada, gravava no disco e exibia como se
+   * fosse medição. O valor não tinha relação nenhuma com o tráfego real e subia
+   * igual mesmo com o aparelho parado.
+   *
+   * Agora vem do WireGuard, via `handleAppMessage` da extensão, que devolve os
+   * contadores do próprio protocolo. `null` significa "não há medição" — sem
+   * sessão ativa, ou versão do app sem a extensão — e a tela mostra traço.
+   * Número inventado não volta.
+   */
+  const [stats, setStats] = useState<{ rxBytes: number; txBytes: number } | null>(null);
   useEffect(() => {
     let mounted = true;
-    let last = Date.now();
-    const timer = setInterval(async () => {
-      const ok = await WireGuard.isConnected();
-      const now = Date.now();
-      const dt = Math.max(0, now - last) / 1000;
-      last = now;
-      if (!mounted) return;
-      if (ok) {
-        setStats(s => {
-          const next = { rxMiB: s.rxMiB + dt * 0.05, txMiB: s.txMiB + dt * 0.05 };
-          const updated = { ...tunnel, stats: next };
-          upsertTunnel(updated);
-          return next;
-        });
-      } else {
-        setStats(s => {
-          const next = { rxMiB: s.rxMiB, txMiB: s.txMiB };
-          const updated = { ...tunnel, stats: next };
-          upsertTunnel(updated);
-          return next;
-        });
-      }
-    }, 1000);
+    const ler = async () => {
+      const medido = await WireGuard.getStats(tunnel.id);
+      if (mounted) setStats(medido);
+    };
+    ler();
+    const timer = setInterval(ler, 2000);
     return () => {
       mounted = false;
       clearInterval(timer);
     };
-  }, [tunnel]);
+  }, [tunnel.id]);
+
+  /** Bytes em unidade legível. Traço quando não há medição. */
+  const formatar = (bytes: number | undefined): string => {
+    if (bytes === undefined) return '—';
+    const mib = bytes / (1024 * 1024);
+    if (mib >= 1024) return (mib / 1024).toFixed(2);
+    return mib.toFixed(2);
+  };
+  const unidade = (bytes: number | undefined): string => {
+    if (bytes === undefined) return '';
+    return bytes / (1024 * 1024) >= 1024 ? 'GiB' : 'MiB';
+  };
 
   /*
    * Editar e excluir só valem para túnel importado pelo próprio usuário.
@@ -170,8 +178,8 @@ export default function TunnelDetailScreen({ navigation, route }: Props) {
                   <ArrowDown size={14} color={colors.greenInk} weight="bold" />
                   <Text style={styles.metricaLabel}>Recebido</Text>
                 </View>
-                <Text style={styles.metricaValor}>{stats.rxMiB.toFixed(2)}</Text>
-                <Text style={styles.metricaUnidade}>MiB</Text>
+                <Text style={styles.metricaValor}>{formatar(stats?.rxBytes)}</Text>
+                <Text style={styles.metricaUnidade}>{unidade(stats?.rxBytes)}</Text>
               </View>
 
               <View style={styles.separador} />
@@ -181,8 +189,8 @@ export default function TunnelDetailScreen({ navigation, route }: Props) {
                   <ArrowUp size={14} color={colors.primary} weight="bold" />
                   <Text style={styles.metricaLabel}>Enviado</Text>
                 </View>
-                <Text style={styles.metricaValor}>{stats.txMiB.toFixed(2)}</Text>
-                <Text style={styles.metricaUnidade}>MiB</Text>
+                <Text style={styles.metricaValor}>{formatar(stats?.txBytes)}</Text>
+                <Text style={styles.metricaUnidade}>{unidade(stats?.txBytes)}</Text>
               </View>
             </View>
           </Card>

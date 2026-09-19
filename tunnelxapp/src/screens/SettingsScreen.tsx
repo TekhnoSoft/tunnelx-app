@@ -7,6 +7,7 @@ import {
   Alert,
   ScrollView,
   Image,
+  Linking,
 } from 'react-native';
 import * as WireGuard from '../native/WireGuard';
 import {
@@ -14,10 +15,8 @@ import {
   SignOut,
   Receipt,
   ShieldCheck,
-  FileZip,
-  SquaresFour,
-  ListDashes,
-  Gear,
+  Lock,
+  FileText,
   CaretRight,
 } from 'phosphor-react-native';
 import { syncConnections } from '../services/sync';
@@ -27,6 +26,15 @@ import Screen from '../components/Screen';
 import Card from '../components/Card';
 import { colors, radius, spacing, type } from '../theme';
 import { useLayout } from '../theme/useLayout';
+import { URL_PRIVACIDADE, URL_TERMOS } from '../config/legal';
+
+async function abrir(url: string) {
+  try {
+    await Linking.openURL(url);
+  } catch {
+    Alert.alert('Não foi possível abrir', url);
+  }
+}
 
 type Props = {
   client?: SessionClient | null;
@@ -146,21 +154,9 @@ export default function SettingsScreen({ client, onSignOut }: Props) {
       ]
     );
   };
-  const onExportZip = () => {
-    Alert.alert('Em breve', 'Exportar túneis para arquivo zip será implementado.');
-  };
 
-  const onAddQuickTile = () => {
-    Alert.alert('Em breve', 'Adicionar botão ao painel de configurações rápidas será implementado.');
-  };
 
-  const onShowLogs = () => {
-    Alert.alert('Em breve', 'Exibir registros da aplicação será implementado.');
-  };
 
-  const onAdvanced = () => {
-    Alert.alert('Em breve', 'Opções avançadas serão implementadas.');
-  };
 
   const onRequestVpnPermission = async () => {
     try {
@@ -238,42 +234,48 @@ export default function SettingsScreen({ client, onSignOut }: Props) {
           </Card>
         ) : null}
 
+        {/*
+          Exportar zip, botão no painel rápido, exibir registros e opções
+          avançadas saíram daqui: os quatro só abriam um alerta "Em breve".
+          Funcionalidade anunciada que não funciona é reprovação por 2.1
+          (App Completeness) — o revisor toca em cada item do menu.
+          Quando forem implementadas de verdade, voltam.
+        */}
         <Card label="Dispositivo" padded={false} style={styles.grupo}>
           <Item
             icon={<ShieldCheck size={18} color={colors.greenInk} weight="duotone" />}
             title="Permitir uso de VPN"
             desc="Solicita a permissão necessária para ativar túneis"
             onPress={onRequestVpnPermission}
-          />
-          <Item
-            icon={<FileZip size={18} color={colors.textMuted} weight="duotone" />}
-            title="Exportar túneis para arquivo zip"
-            desc="O arquivo Zip será salvo na pasta de downloads"
-            onPress={onExportZip}
-          />
-          <Item
-            icon={<SquaresFour size={18} color={colors.textMuted} weight="duotone" />}
-            title="Botão no painel rápido"
-            desc="A tecla de atalho alterna o túnel mais recente"
-            onPress={onAddQuickTile}
-          />
-          <Item
-            icon={<ListDashes size={18} color={colors.textMuted} weight="duotone" />}
-            title="Exibir registros da aplicação"
-            desc="Registros podem ajudar na depuração"
-            onPress={onShowLogs}
             last
           />
         </Card>
 
-        <Card label="Avançado" padded={false} style={styles.grupo}>
+        {/*
+          Obrigatório para app de VPN.
+          A diretriz 5.4 exige que a política de privacidade seja alcançável
+          DENTRO do app — não basta preencher o campo na ficha da App Store — e
+          que ela declare que o tráfego do túnel não é registrado, vendido nem
+          compartilhado. Antes daqui não havia nenhuma URL externa no app todo.
+        */}
+        <Card label="Legal" padded={false} style={styles.grupo}>
           <Item
-            icon={<Gear size={18} color={colors.textMuted} weight="duotone" />}
-            title="Opções avançadas"
-            desc="Controle remoto e diagnósticos"
-            onPress={onAdvanced}
-            last
+            icon={<Lock size={18} color={colors.textMuted} weight="duotone" />}
+            title="Política de privacidade"
+            desc="O que coletamos e como usamos"
+            onPress={() => abrir(URL_PRIVACIDADE)}
+            last={!URL_TERMOS}
           />
+          {/* Sem URL configurada o item some: link 404 na revisão reprova. */}
+          {URL_TERMOS ? (
+            <Item
+              icon={<FileText size={18} color={colors.textMuted} weight="duotone" />}
+              title="Termos de uso"
+              desc="Condições do serviço"
+              onPress={() => abrir(URL_TERMOS)}
+              last
+            />
+          ) : null}
         </Card>
 
         <Text style={styles.rodape}>TunnelX · conexão segura</Text>

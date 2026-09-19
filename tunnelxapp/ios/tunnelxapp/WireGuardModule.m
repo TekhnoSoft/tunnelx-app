@@ -32,6 +32,10 @@ RCT_EXTERN_METHOD(isConnected:(RCTPromiseResolveBlock)resolve
 RCT_EXTERN_METHOD(getVpnState:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(getStats:(NSString *)id
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(prepareVpn:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
