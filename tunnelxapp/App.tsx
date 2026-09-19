@@ -21,7 +21,7 @@ import QRScanScreen from './src/screens/QRScanScreen';
 import ConfImportScreen from './src/screens/ConfImportScreen';
 import { loadTunnels } from './src/storage/tunnels';
 import LoginScreen from './src/screens/LoginScreen';
-import FirstAccessScreen from './src/screens/FirstAccessScreen';
+import RegisterScreen from './src/screens/RegisterScreen';
 import NewPasswordScreen from './src/screens/NewPasswordScreen';
 import PlansScreen from './src/screens/PlansScreen';
 import CheckoutScreen from './src/screens/CheckoutScreen';
@@ -72,7 +72,7 @@ function App() {
   // Em memória e só aqui: a senha provisória não vai para o AsyncStorage, e
   // some se o app for fechado no meio (a tela então volta a pedi-la).
   const [senhaProvisoria, setSenhaProvisoria] = useState<string | undefined>();
-  const [noPrimeiroAcesso, setNoPrimeiroAcesso] = useState(false);
+  const [noCadastro, setNoCadastro] = useState(false);
 
   /*
    * Acesso pago: quem decide e o servidor.
@@ -129,7 +129,7 @@ function App() {
     setSenhaProvisoria(provisoria);
     setClient(c);
     setTrocaPendente(true);
-    setNoPrimeiroAcesso(false);
+    setNoCadastro(false);
   };
 
   const concluirTroca = async () => {
@@ -158,7 +158,7 @@ function App() {
     setClient(null);
     setTrocaPendente(false);
     setSenhaProvisoria(undefined);
-    setNoPrimeiroAcesso(false);
+    setNoCadastro(false);
     setAcesso(null);
     setPlanoEscolhido(null);
   };
@@ -190,13 +190,18 @@ function App() {
             <Stack.Screen name="Splash" component={SplashScreen} options={{ headerShown: false }} />
           ) : !client ? (
             // Sem sessão não há o que mostrar: as conexões pertencem a uma conta.
-            noPrimeiroAcesso ? (
-              <Stack.Screen name="FirstAccess" options={{ headerShown: false }}>
+            noCadastro ? (
+              <Stack.Screen name="Register" options={{ headerShown: false }}>
                 {() => (
-                  <FirstAccessScreen
-                    onNeedsNewPassword={pedirNovaSenha}
-                    onSigned={setClient}
-                    onCancel={() => setNoPrimeiroAcesso(false)}
+                  <RegisterScreen
+                    onCadastrado={(c) => {
+                      setNoCadastro(false);
+                      // Conta criada com senha própria: entra direto, sem troca
+                      // obrigatória. O portão seguinte é a assinatura — que
+                      // ainda não existe, então conferirAcesso leva aos planos.
+                      setClient(c);
+                    }}
+                    onCancel={() => setNoCadastro(false)}
                   />
                 )}
               </Stack.Screen>
@@ -206,7 +211,7 @@ function App() {
                   <LoginScreen
                     onSigned={setClient}
                     onNeedsNewPassword={pedirNovaSenha}
-                    onFirstAccess={() => setNoPrimeiroAcesso(true)}
+                    onCriarConta={() => setNoCadastro(true)}
                   />
                 )}
               </Stack.Screen>

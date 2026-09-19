@@ -25,14 +25,14 @@ type Props = {
   onSigned: (client: SessionClient) => void;
   /**
    * Entrou com a senha que o operador entregou e ainda precisa criar a dele.
-   * Acontece também por este caminho, e não só pelo "Primeiro acesso": quem teve
-   * a senha regerada pelo suporte cai aqui sem saber que virou provisória.
+   * Continua valendo para quem foi cadastrado no painel, ou teve a senha
+   * regerada pelo suporte — o login detecta e desvia sozinho.
    */
   onNeedsNewPassword: (client: SessionClient, senhaProvisoria: string) => void;
-  onFirstAccess: () => void;
+  onCriarConta: () => void;
 };
 
-export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAccess }: Props) {
+export default function LoginScreen({ onSigned, onNeedsNewPassword, onCriarConta }: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const m = metrics(width);
@@ -146,11 +146,11 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAcces
             <View style={styles.linha} />
           </View>
 
-          <Button label="Primeiro acesso" variant="ghost" onPress={onFirstAccess} />
+          <Button label="Criar minha conta" variant="ghost" onPress={onCriarConta} />
 
           <Text style={styles.ajuda}>
-            É a sua primeira vez no app? Use o <Text style={styles.destaque}>Primeiro acesso</Text>{' '}
-            com o CPF e a senha provisória que você recebeu no cadastro.
+            Ainda não é cliente? Crie sua conta em um minuto e escolha seu plano. Se você recebeu
+            uma senha da TunnelX, é só entrar acima com ela.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>

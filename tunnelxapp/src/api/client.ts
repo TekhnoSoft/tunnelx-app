@@ -268,3 +268,46 @@ export async function fetchConnectionQr(connectionId: number): Promise<ApiConnec
   const todas = await fetchConnections();
   return todas.find(c => c.id === connectionId) ?? null;
 }
+
+/* =============================================================================
+   Auto-cadastro
+
+   O cliente cria a propria conta pelo app, sem passar pelo operador. A conta
+   nasce SEM assinatura: existir nao da acesso a nada — o portao continua sendo
+   o pagamento.
+   ========================================================================== */
+
+export type RegisterInput = {
+  name: string;
+  cpf: string;
+  email: string;
+  whatsapp: string;
+  password: string;
+  cep?: string;
+  uf?: string;
+  cidade?: string;
+  bairro?: string;
+  logradouro?: string;
+  complemento?: string;
+};
+
+/**
+ * Cria a conta e ja deixa a sessao pronta.
+ *
+ * A senha e escolhida pelo dono, entao nao ha troca obrigatoria depois — o
+ * token que volta ja e pleno.
+ */
+export async function register(dados: RegisterInput): Promise<SessionClient> {
+  const r = await request<{ token: string; client: SessionClient }>('/app/register', {
+    method: 'POST',
+    body: dados,
+    auth: false,
+  });
+  await saveSession(r.token, r.client, false);
+  return r.client;
+}
+
+/** Avisa que o CPF ja tem conta ENQUANTO se digita, em vez de so no envio. */
+export async function checkCpf(cpf: string): Promise<{ valid: boolean; taken: boolean }> {
+  return request(`/app/register/check-cpf?cpf=${encodeURIComponent(cpf)}`, { auth: false });
+}

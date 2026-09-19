@@ -3,7 +3,7 @@ import type { Tunnel } from '../models/Tunnel';
 export type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
-  FirstAccess: undefined;
+  Register: undefined;
   NewPassword: undefined;
   Plans: undefined;
   Checkout: undefined;
