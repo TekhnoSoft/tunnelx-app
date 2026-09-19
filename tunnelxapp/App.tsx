@@ -138,28 +138,34 @@ function App() {
     setVerificandoAcesso(true);
     try {
       const r = await fetchSubscription();
-      setAcesso(r.access);
       setPixPendente(r.pending_pix ?? null);
 
       /*
-       * Liberado? Traz as conexões AGORA.
+       * Liberado? Traz as conexões ANTES de liberar a tela.
        *
-       * Antes o sync só acontecia depois de trocar a senha ou de concluir um
-       * pagamento na tela de checkout. Quem teve a assinatura ativada em outro
-       * momento — pelo webhook com o app fechado, ou pelo suporte — abria o app
-       * e via a lista vazia: os túneis existiam no servidor e nada os buscava.
+       * A ordem importa: `setAcesso` é o que monta a Home, e montá-la antes de
+       * os túneis existirem no armazenamento fazia a lista nascer vazia. O
+       * usuário via "nenhum túnel" logo depois de entrar, sem nada de errado no
+       * servidor.
+       *
+       * Sincronizar também não é só cosmético aqui: quem teve a assinatura
+       * ativada com o app fechado (pelo webhook, ou pelo suporte) não tem os
+       * túneis no aparelho, e nada além disto vai buscá-los.
        */
       if (r.access.allowed) {
         try {
           const { syncConnections } = await import('./src/services/sync');
-          await syncConnections();
-          setInitialTunnels(await loadTunnels());
+          const sync = await syncConnections();
+          setInitialTunnels(sync.tunnels);
         } catch (e) {
-          // Sincronizar é o que enche a lista, não o que dá acesso: falhar aqui
-          // não pode impedir o app de abrir.
+          // Sincronizar enche a lista; não é o que dá acesso. Falhar aqui não
+          // pode impedir o app de abrir — a Home tenta de novo ao ganhar foco.
           console.warn('[App] falha ao sincronizar conexões', e);
+          setInitialTunnels(await loadTunnels());
         }
       }
+
+      setAcesso(r.access);
     } catch (e) {
       // Sem resposta do servidor nao da para afirmar que esta liberado. Fica
       // nulo e a tela de planos assume - negar e o lado seguro do erro.

@@ -82,6 +82,23 @@ export default function HomeScreen({
   onRetomarPagamento,
 }: Props) {
   const [tunnels, setTunnels] = useState<Tunnel[]>(initialTunnels);
+
+  /*
+   * A prop `initialTunnels` continua mandando DEPOIS da montagem.
+   *
+   * Era só estado inicial, e isso deixava a Home vazia numa corrida real: o App
+   * libera o acesso assim que o servidor responde e só então sincroniza. A Home
+   * montava no meio, lia a lista vazia do armazenamento e nunca mais olhava —
+   * o `useFocusEffect` já tinha rodado, e a prop nova era ignorada porque
+   * `useState(x)` só usa `x` no primeiro render.
+   *
+   * Aparecia mais no convidado porque o caminho dele é mais longo (aceitar o
+   * convite antes de consultar o acesso), mas o titular perdia a mesma corrida
+   * quando o servidor demorava a responder.
+   */
+  useEffect(() => {
+    if (initialTunnels.length) setTunnels(initialTunnels);
+  }, [initialTunnels]);
   const [showSheet, setShowSheet] = useState(false);
   // Qual túnel está com a folha de compartilhamento aberta. Guardar o túnel, e
   // não só um booleano, evita a folha piscar com os dados do anterior.
