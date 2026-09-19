@@ -3,8 +3,10 @@ import {
   saveSession,
   clearSession,
   completePasswordChange,
+  loadSessionId,
   type SessionClient,
 } from '../storage/session';
+import { nomeDoAparelho } from '../utils/device';
 
 /**
  * Cliente HTTP do aplicativo.
@@ -19,16 +21,73 @@ export const BASE_URL = 'https://others-tunnelx-backed.pvuzyy.easypanel.host';
 // pendurado e a tela de login parece travada em vez de dar erro.
 const TIMEOUT_MS = 20000;
 
+/* =============================================================================
+   Sessão encerrada por fora
+
+   A conta vale em um aparelho por vez. Quando alguém entra em outro, ESTE aqui
+   descobre pela primeira requisição que responder 401 — pode ser no meio de
+   qualquer tela, sem nenhuma ação do usuário.
+
+   Um aviso global resolve porque o problema é global: não adianta cada tela
+   tratar o próprio erro. Quem assina é o App, que apaga a sessão, derruba a VPN
+   e volta para o login explicando o motivo — em vez de deixar a pessoa vendo
+   erros soltos sem entender que foi desconectada.
+   ========================================================================== */
+
+export type SessionLostReason = 'SESSION_REPLACED' | 'SESSION_ENDED' | 'SESSION_INVALID' | 'EXPIRED';
+
+type Ouvinte = (motivo: SessionLostReason, mensagem: string) => void;
+let ouvinteSessao: Ouvinte | null = null;
+
+/** Registra quem cuida da sessão perdida. Devolve a função que cancela. */
+export function onSessionLost(cb: Ouvinte): () => void {
+  ouvinteSessao = cb;
+  return () => {
+    if (ouvinteSessao === cb) ouvinteSessao = null;
+  };
+}
+
+/**
+ * Janela em que avisos repetidos são ignorados.
+ *
+ * Duas coisas dispararam o mesmo alarme aqui. A primeira é banal: várias
+ * requisições em voo quando a sessão cai — o vigia de acesso e a tela de
+ * assinatura, por exemplo — e cada uma avisaria, empilhando diálogos.
+ *
+ * A segunda é um laço de verdade. Sair da conta chama /app/logout; se a sessão
+ * já não vale, ele responde 401, que avisa "sessão perdida", que manda sair de
+ * novo, que chama /app/logout... A saída explícita marca "quietOn401", e esta
+ * janela protege o resto.
+ */
+const SILENCIO_MS = 5000;
+let ultimoAviso = 0;
+
+function notificarSessaoPerdida(silencioso: boolean, motivo: SessionLostReason, mensagem?: string) {
+  if (silencioso) return;
+
+  const agora = Date.now();
+  if (agora - ultimoAviso < SILENCIO_MS) return;
+  ultimoAviso = agora;
+
+  ouvinteSessao?.(motivo, mensagem || 'Sua sessão foi encerrada. Entre novamente.');
+}
+
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** Corpo da resposta, quando veio JSON. Alguns erros trazem dados úteis. */
+  data: any;
+  constructor(message: string, status: number, data: any = null) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
-async function request<T>(path: string, options: { method?: string; body?: any; auth?: boolean } = {}): Promise<T> {
-  const { method = 'GET', body, auth = true } = options;
+async function request<T>(
+  path: string,
+  options: { method?: string; body?: any; auth?: boolean; quietOn401?: boolean } = {}
+): Promise<T> {
+  const { method = 'GET', body, auth = true, quietOn401 = false } = options;
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (auth) {
@@ -73,8 +132,18 @@ async function request<T>(path: string, options: { method?: string; body?: any; 
     // volta para o login.
     if (response.status === 401 && options.auth !== false) {
       await clearSession();
+
+      // O código diz o que aconteceu: substituída por outro aparelho, encerrada
+      // por logout, ou um token velho que não vale mais. Sem ele, o usuário só
+      // veria o app voltar para o login sozinho.
+      const motivo: SessionLostReason =
+        data?.code === 'SESSION_REPLACED' || data?.code === 'SESSION_ENDED' || data?.code === 'SESSION_INVALID'
+          ? data.code
+          : 'EXPIRED';
+
+      notificarSessaoPerdida(quietOn401, motivo, data?.message);
     }
-    throw new ApiError(data?.message || 'Erro ao comunicar com o servidor.', response.status);
+    throw new ApiError(data?.message || 'Erro ao comunicar com o servidor.', response.status, data);
   }
 
   return data as T;
@@ -118,6 +187,22 @@ export type ApiConnection = {
   expires_text?: string;
 };
 
+/**
+ * A conta já está aberta em outro aparelho.
+ *
+ * Não é falha de login — a senha estava certa. É a escolha voltando para quem
+ * está entrando: seguir aqui desconecta o outro.
+ */
+export class SessionActiveError extends Error {
+  device: string;
+  since: string | null;
+  constructor(message: string, device: string, since: string | null) {
+    super(message);
+    this.device = device;
+    this.since = since;
+  }
+}
+
 export type LoginResult = {
   client: SessionClient;
   /**
@@ -131,19 +216,46 @@ export type LoginResult = {
   mustChangePassword: boolean;
 };
 
-export async function login(cpf: string, password: string): Promise<LoginResult> {
-  const r = await request<{ token: string; client: SessionClient; must_change_password?: boolean }>(
-    '/app/login',
-    {
+/**
+ * Entra na conta.
+ *
+ * @param forcar o usuário viu em que aparelho a conta está e confirmou que quer
+ *               desconectá-lo. Sem isso, o servidor recusa com 409 — e é de
+ *               propósito: derrubar o outro aparelho em silêncio faria dois
+ *               telefones se expulsarem em looping, sem ninguém entender.
+ */
+export async function login(cpf: string, password: string, forcar = false): Promise<LoginResult> {
+  // Se este aparelho já tem uma sessão, manda junto: quando ela for a que está
+  // ativa, o servidor deixa entrar sem perguntar se quer desconectar a si mesmo.
+  const sessaoAtual = await loadSessionId();
+
+  let r: { token: string; client: SessionClient; must_change_password?: boolean; session_id?: string };
+  try {
+    r = await request('/app/login', {
       method: 'POST',
-      body: { cpf, password },
+      body: {
+        cpf,
+        password,
+        device_name: nomeDoAparelho(),
+        current_session: sessaoAtual || undefined,
+        ...(forcar ? { force: true } : {}),
+      },
       auth: false,
+    });
+  } catch (e: any) {
+    if (e instanceof ApiError && e.status === 409) {
+      const d = e.data || {};
+      throw new SessionActiveError(e.message, d.device || 'outro aparelho', d.since || null);
     }
-  );
+    throw e;
+  }
+
   const mustChangePassword = !!r.must_change_password;
-  await saveSession(r.token, r.client, mustChangePassword);
+  await saveSession(r.token, r.client, mustChangePassword, r.session_id || null);
   return { client: r.client, mustChangePassword };
 }
+
+
 
 export async function fetchConnections(): Promise<ApiConnection[]> {
   return request<ApiConnection[]>('/app/connections');
@@ -185,14 +297,36 @@ export async function fetchConnectionsState(): Promise<ConnectionsState> {
  * Sem esta troca o cliente definiria a senha e continuaria sem ver as conexões.
  */
 export async function changePassword(current_password: string, new_password: string): Promise<void> {
-  const r = await request<{ token?: string }>('/app/change-password', {
+  const r = await request<{ token?: string; session_id?: string }>('/app/change-password', {
     method: 'POST',
     body: { current_password, new_password },
   });
-  await completePasswordChange(r?.token);
+  // A troca abre sessão NOVA (o servidor derruba as outras). Guardar o id
+  // junto evita que o próprio aparelho seja tratado como "outro" num login
+  // seguinte.
+  await completePasswordChange(r?.token, r?.session_id ?? null);
 }
 
+/**
+ * Sai da conta — no servidor e no aparelho.
+ *
+ * Avisar o servidor importa: a conta vale em um aparelho por vez, e sem soltar a
+ * sessão lá ela continuaria marcada como em uso. Entrar em outro telefone
+ * exigiria passar pela tela de "desconectar o outro" — para um aparelho de onde
+ * a pessoa acabou de sair por vontade própria.
+ *
+ * A limpeza local acontece de qualquer jeito. Se a rede falhar, o pior caso é o
+ * próximo login pedir confirmação; prender o usuário dentro do app por causa
+ * disso seria pior.
+ */
 export async function logout(): Promise<void> {
+  try {
+    // `quietOn401`: sair com a sessão já derrubada responde 401, e avisar aqui
+    // reentraria na própria saída — ver notificarSessaoPerdida.
+    await request('/app/logout', { method: 'POST', quietOn401: true });
+  } catch {
+    // Sem rede, ou sessão já encerrada do outro lado.
+  }
   await clearSession();
 }
 
@@ -383,12 +517,15 @@ export type RegisterInput = {
  * token que volta ja e pleno.
  */
 export async function register(dados: RegisterInput): Promise<SessionClient> {
-  const r = await request<{ token: string; client: SessionClient }>('/app/register', {
-    method: 'POST',
-    body: dados,
-    auth: false,
-  });
-  await saveSession(r.token, r.client, false);
+  const r = await request<{ token: string; client: SessionClient; session_id?: string }>(
+    '/app/register',
+    {
+      method: 'POST',
+      body: { ...dados, device_name: nomeDoAparelho() },
+      auth: false,
+    }
+  );
+  await saveSession(r.token, r.client, false, r.session_id || null);
   return r.client;
 }
 

@@ -7,10 +7,11 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   useWindowDimensions,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowRight, QrCode } from 'phosphor-react-native';
-import { login } from '../api/client';
+import { login, SessionActiveError } from '../api/client';
 import { syncConnections } from '../services/sync';
 import type { SessionClient } from '../storage/session';
 import { maskCpf } from '../utils/cpf';
@@ -58,12 +59,44 @@ export default function LoginScreen({
   const digitos = cpf.replace(/\D/g, '');
   const podeEntrar = digitos.length === 11 && senha.length > 0 && !carregando;
 
-  const entrar = async () => {
-    if (!podeEntrar) return;
+  /**
+   * A conta já está aberta em outro aparelho.
+   *
+   * Pergunta antes de derrubar. O usuário pode estar entrando no telefone de
+   * alguém, ou pode ter esquecido a conta aberta no aparelho antigo — só ele
+   * sabe, e o nome do aparelho é o que permite reconhecer a situação.
+   */
+  const perguntarSeForca = (e: SessionActiveError) => {
+    const desde = e.since
+      ? new Date(e.since).toLocaleString('pt-BR', {
+          day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+        })
+      : null;
+
+    Alert.alert(
+      'Conta em uso',
+      `Sua conta está aberta em ${e.device}${desde ? ` desde ${desde}` : ''}.\n\n` +
+        'Sua assinatura vale para um aparelho por vez. Se continuar, o outro será ' +
+        'desconectado agora.',
+      [
+        // O `finally` do `entrar` já desligou o carregando antes do diálogo abrir.
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Entrar aqui',
+          style: 'destructive',
+          onPress: () => entrar(true),
+        },
+      ],
+      { cancelable: false }
+    );
+  };
+
+  const entrar = async (forcar = false) => {
+    if (!forcar && !podeEntrar) return;
     setErro(null);
     setCarregando(true);
     try {
-      const { client, mustChangePassword } = await login(digitos, senha);
+      const { client, mustChangePassword } = await login(digitos, senha, forcar);
 
       // Senha ainda é a do balcão: o token que acabou de chegar só abre a troca,
       // então nem adianta sincronizar — /app/connections responderia 403.
@@ -82,6 +115,11 @@ export default function LoginScreen({
 
       onSigned(client);
     } catch (e: any) {
+      if (e instanceof SessionActiveError) {
+        // Não é erro de credencial: a senha estava certa. Vira uma escolha.
+        perguntarSeForca(e);
+        return;
+      }
       setErro(e?.message || 'Não foi possível entrar.');
     } finally {
       setCarregando(false);
@@ -138,14 +176,14 @@ export default function LoginScreen({
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="go"
-              onSubmitEditing={entrar}
+              onSubmitEditing={() => entrar()}
               hint={erro ?? undefined}
               hintTone="error"
             />
 
             <Button
               label="Entrar"
-              onPress={entrar}
+              onPress={() => entrar()}
               disabled={!podeEntrar}
               loading={carregando}
               icon={<ArrowRight size={18} color="#fff" weight="bold" />}

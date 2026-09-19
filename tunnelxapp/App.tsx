@@ -31,6 +31,7 @@ import ShareInviteScreen from './src/screens/ShareInviteScreen';
 import {
   fetchSubscription,
   acceptShare,
+  onSessionLost,
   type Access,
   type ApiPlan,
   type PendingPix,
@@ -39,7 +40,6 @@ import {
   loadToken,
   loadClient,
   loadMustChangePassword,
-  clearSession,
   type SessionClient,
 } from './src/storage/session';
 import type { Tunnel } from './src/models/Tunnel';
@@ -176,6 +176,28 @@ function App() {
     }
   }, []);
 
+  /*
+   * A conta foi aberta em outro aparelho — ou a sessão acabou.
+   *
+   * Chega por uma requisição qualquer respondendo 401, em qualquer tela e sem
+   * ação do usuário. Por isso o tratamento é aqui e não em cada tela: é o App
+   * que consegue desfazer a sessão inteira e voltar ao login.
+   *
+   * `sair(true)` também tira os túneis da conta do aparelho e derruba a VPN. Um
+   * aparelho desconectado que continuasse navegando pelo túnel tornaria a regra
+   * de "um aparelho por vez" decorativa — é justamente o que ela impede.
+   */
+  useEffect(() => {
+    return onSessionLost((motivo, mensagem) => {
+      sair(true);
+      Alert.alert(
+        motivo === 'SESSION_REPLACED' ? 'Conta aberta em outro aparelho' : 'Sessão encerrada',
+        mensagem
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Confere ao entrar e sempre que a sessao muda.
   //
   // Segura enquanto houver convite a aceitar: sem isto o app consultaria o
@@ -266,10 +288,25 @@ function App() {
 
   const sair = async (removerTuneis: boolean) => {
     if (removerTuneis) {
+      // Derruba a VPN antes de soltar os túneis: sair da conta com a conexão
+      // de pé deixaria o tráfego passando por um túnel que o app não lista mais.
+      try {
+        const WireGuard = await import('./src/native/WireGuard');
+        const vpn = await WireGuard.getVpnState();
+        if (vpn.connected && vpn.tunnelId) await WireGuard.stop(vpn.tunnelId);
+      } catch (e) {
+        console.warn('[App] falha ao desligar a VPN ao sair', e);
+      }
+
       const { clearSyncedTunnels } = await import('./src/services/sync');
       setInitialTunnels(await clearSyncedTunnels());
     }
-    await clearSession();
+
+    // Avisa o servidor: a conta vale em um aparelho por vez, e sem soltar a
+    // sessão lá o próximo login (mesmo neste telefone) pediria confirmação para
+    // desconectar um aparelho de onde a pessoa já saiu.
+    const { logout } = await import('./src/api/client');
+    await logout();
     setClient(null);
     setTrocaPendente(false);
     setSenhaProvisoria(undefined);

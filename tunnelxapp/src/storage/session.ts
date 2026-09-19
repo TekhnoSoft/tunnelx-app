@@ -20,6 +20,15 @@ const KEY_CLIENT = 'tunnelx:client';
  */
 const KEY_PENDING_PASSWORD = 'tunnelx:senha-provisoria';
 
+/**
+ * Identificador da sessão aberta por ESTE aparelho.
+ *
+ * Guardado à parte do token só para poder ser lido sem decodificar JWT. Serve
+ * para o aparelho dizer "a sessão em uso é a minha" ao entrar de novo, e assim
+ * não perguntar se ele quer desconectar a si mesmo.
+ */
+const KEY_SESSION = 'tunnelx:sessao';
+
 export type SessionClient = {
   id: number;
   name: string;
@@ -33,13 +42,23 @@ export type SessionClient = {
 export async function saveSession(
   token: string,
   client: SessionClient,
-  mustChangePassword = false
+  mustChangePassword = false,
+  sessionId?: string | null
 ): Promise<void> {
   await AsyncStorage.multiSet([
     [KEY_TOKEN, token],
     [KEY_CLIENT, JSON.stringify(client)],
     [KEY_PENDING_PASSWORD, mustChangePassword ? '1' : '0'],
+    [KEY_SESSION, sessionId || ''],
   ]);
+}
+
+export async function loadSessionId(): Promise<string | null> {
+  try {
+    return (await AsyncStorage.getItem(KEY_SESSION)) || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function loadMustChangePassword(): Promise<boolean> {
@@ -55,8 +74,12 @@ export async function loadMustChangePassword(): Promise<boolean> {
  * pendência. O token vem primeiro — se a gravação falhar, o app continua
  * mostrando a tela de senha, que é o estado seguro.
  */
-export async function completePasswordChange(novoToken?: string | null): Promise<void> {
+export async function completePasswordChange(
+  novoToken?: string | null,
+  sessionId?: string | null
+): Promise<void> {
   if (novoToken) await AsyncStorage.setItem(KEY_TOKEN, novoToken);
+  if (sessionId) await AsyncStorage.setItem(KEY_SESSION, sessionId);
   await AsyncStorage.setItem(KEY_PENDING_PASSWORD, '0');
 }
 
@@ -78,5 +101,5 @@ export async function loadClient(): Promise<SessionClient | null> {
 }
 
 export async function clearSession(): Promise<void> {
-  await AsyncStorage.multiRemove([KEY_TOKEN, KEY_CLIENT, KEY_PENDING_PASSWORD]);
+  await AsyncStorage.multiRemove([KEY_TOKEN, KEY_CLIENT, KEY_PENDING_PASSWORD, KEY_SESSION]);
 }
