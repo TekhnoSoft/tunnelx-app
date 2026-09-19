@@ -2,7 +2,12 @@ import { fetchConnections, type ApiConnection } from '../api/client';
 import { parseWireGuardConf, toWireGuardConf } from '../utils/wgConfig';
 import { loadTunnels, saveTunnels } from '../storage/tunnels';
 import * as WireGuard from '../native/WireGuard';
-import type { Tunnel, TunnelOrigin } from '../models/Tunnel';
+import {
+  tunnelIdFor as idPara,
+  isSyncedTunnel as veioDaConta,
+  type Tunnel,
+  type TunnelOrigin,
+} from '../models/Tunnel';
 
 /**
  * Traz para o aparelho as conexões da conta.
@@ -12,21 +17,9 @@ import type { Tunnel, TunnelOrigin } from '../models/Tunnel';
  * túneis prontos.
  */
 
-/**
- * O id do túnel deriva do id da conexão, e não do relógio.
- *
- * `parseWireGuardConf` gera `tun_<timestamp>`: sincronizar duas vezes criaria
- * duas cópias do mesmo túnel. Amarrando o id à conexão, a segunda sincronização
- * ATUALIZA a primeira — que é exatamente o que precisa acontecer quando o
- * operador reprovisiona e o Endpoint muda.
- */
-export function tunnelIdFor(connectionId: number): string {
-  return `tunnelx_conn_${connectionId}`;
-}
-
-export function isSyncedTunnel(id: string): boolean {
-  return id.startsWith('tunnelx_conn_');
-}
+// O formato do id mora em models/Tunnel — é um fato sobre a string, e as telas
+// precisam dele sem arrastar este módulo (que puxa rede e código nativo) junto.
+export { tunnelIdFor, isSyncedTunnel, connectionIdOf } from '../models/Tunnel';
 
 export type SyncResult = {
   imported: number;
@@ -75,12 +68,7 @@ function originFor(conn: ApiConnection): TunnelOrigin {
   };
 }
 
-/** Caminho inverso de `tunnelIdFor`: da lista local de volta para a conexão. */
-export function connectionIdOf(tunnelId: string): number | null {
-  if (!isSyncedTunnel(tunnelId)) return null;
-  const n = Number(tunnelId.slice('tunnelx_conn_'.length));
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
+
 
 export async function syncConnections(): Promise<SyncResult> {
   const conexoes = await fetchConnections();
@@ -97,7 +85,7 @@ export async function syncConnections(): Promise<SyncResult> {
       continue;
     }
 
-    const id = tunnelIdFor(conn.id);
+    const id = idPara(conn.id);
 
     try {
       const parsed = parseWireGuardConf(conn.config);
@@ -154,10 +142,10 @@ export async function syncConnections(): Promise<SyncResult> {
    * Um túnel removido enquanto está ligado é derrubado antes de sair da lista —
    * caso contrário o acesso cortado continuaria de pé até o aparelho reiniciar.
    */
-  const noServidor = new Set(conexoes.map((c) => tunnelIdFor(c.id)));
+  const noServidor = new Set(conexoes.map((c) => idPara(c.id)));
 
   for (const t of atuais) {
-    if (!isSyncedTunnel(t.id) || noServidor.has(t.id)) continue;
+    if (!veioDaConta(t.id) || noServidor.has(t.id)) continue;
 
     try {
       if ((await WireGuard.status(t.id)) === 'up') await WireGuard.stop(t.id);
@@ -183,7 +171,7 @@ export async function syncConnections(): Promise<SyncResult> {
  */
 export async function clearSyncedTunnels(): Promise<Tunnel[]> {
   const atuais = await loadTunnels();
-  const mantidos = atuais.filter(t => !isSyncedTunnel(t.id));
+  const mantidos = atuais.filter(t => !veioDaConta(t.id));
   await saveTunnels(mantidos);
   return mantidos;
 }

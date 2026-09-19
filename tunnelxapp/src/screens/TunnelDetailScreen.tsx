@@ -11,6 +11,7 @@ import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { PencilSimple, Trash, ArrowDown, ArrowUp } from 'phosphor-react-native';
 import { removeTunnel, upsertTunnel } from '../storage/tunnels';
+import { isEditableTunnel } from '../models/Tunnel';
 import * as WireGuard from '../native/WireGuard';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
@@ -76,15 +77,36 @@ export default function TunnelDetailScreen({ navigation, route }: Props) {
     };
   }, [tunnel]);
 
+  /*
+   * Editar e excluir só valem para túnel importado pelo próprio usuário.
+   *
+   * Esta tela abria os dois para qualquer túnel — inclusive os do plano, que a
+   * lista já protege. Era o caminho por fora: bastava abrir o detalhe para
+   * apagar um túnel que o servidor continua cobrando e que a próxima
+   * sincronização traria de volta.
+   *
+   * `tunnel.origin` existe só no que veio da conta; o importado à mão não tem.
+   */
+  const podeMexer = isEditableTunnel(tunnel);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <TouchableOpacity style={styles.headerBtn} onPress={() => navigation.navigate('TunnelForm', { tunnel })}>
-            <PencilSimple size={18} color={colors.textMuted} />
+          <TouchableOpacity
+            style={styles.headerBtn}
+            disabled={!podeMexer}
+            accessibilityState={{ disabled: !podeMexer }}
+            accessibilityLabel={podeMexer ? 'Editar túnel' : 'Túnel do plano: não pode ser editado'}
+            onPress={() => navigation.navigate('TunnelForm', { tunnel })}
+          >
+            <PencilSimple size={18} color={podeMexer ? colors.textMuted : colors.textDim} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerBtn}
+            disabled={!podeMexer}
+            accessibilityState={{ disabled: !podeMexer }}
+            accessibilityLabel={podeMexer ? 'Excluir túnel' : 'Túnel do plano: não pode ser excluído'}
             onPress={() =>
               Alert.alert('Excluir túnel', `Deseja excluir "${tunnel.name}"?`, [
                 { text: 'Cancelar', style: 'cancel' },
@@ -97,12 +119,12 @@ export default function TunnelDetailScreen({ navigation, route }: Props) {
               ])
             }
           >
-            <Trash size={18} color={colors.danger} />
+            <Trash size={18} color={podeMexer ? colors.danger : colors.textDim} />
           </TouchableOpacity>
         </View>
       ),
     });
-  }, [navigation, tunnel]);
+  }, [navigation, tunnel, podeMexer]);
 
   return (
     // ScrollView e nao View: o conteudo tem altura variavel (um card por peer) e

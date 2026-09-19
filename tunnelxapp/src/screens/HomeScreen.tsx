@@ -15,7 +15,7 @@ import Screen from '../components/Screen';
 import ConnectionOrb from '../components/ConnectionOrb';
 import BottomSheet from '../components/BottomSheet';
 import ShareSheet from '../components/ShareSheet';
-import type { Tunnel } from '../models/Tunnel';
+import { isEditableTunnel, type Tunnel } from '../models/Tunnel';
 import { saveTunnels, removeTunnel, loadTunnels } from '../storage/tunnels';
 import { syncConnections } from '../services/sync';
 import { leaveShare } from '../api/client';
@@ -82,6 +82,23 @@ export default function HomeScreen({
   onRetomarPagamento,
 }: Props) {
   const [tunnels, setTunnels] = useState<Tunnel[]>(initialTunnels);
+
+  /*
+   * A prop `initialTunnels` continua mandando DEPOIS da montagem.
+   *
+   * Era só estado inicial, e isso deixava a Home vazia numa corrida real: o App
+   * libera o acesso assim que o servidor responde e só então sincroniza. A Home
+   * montava no meio, lia a lista vazia do armazenamento e nunca mais olhava —
+   * o `useFocusEffect` já tinha rodado, e a prop nova era ignorada porque
+   * `useState(x)` só usa `x` no primeiro render.
+   *
+   * Aparecia mais no convidado porque o caminho dele é mais longo (aceitar o
+   * convite antes de consultar o acesso), mas o titular perdia a mesma corrida
+   * quando o servidor demorava a responder.
+   */
+  useEffect(() => {
+    if (initialTunnels.length) setTunnels(initialTunnels);
+  }, [initialTunnels]);
   const [showSheet, setShowSheet] = useState(false);
   // Qual túnel está com a folha de compartilhamento aberta. Guardar o túnel, e
   // não só um booleano, evita a folha piscar com os dados do anterior.
@@ -315,7 +332,8 @@ export default function HomeScreen({
   };
 
   const onPress = (tun: Tunnel) => {
-    // Detalhe expõe chave, endpoint e estatísticas — de um túnel que não é dele.
+    // O túnel do plano abre em visualização — é dele, só não é editável. O
+    // emprestado não abre: a chave e o endpoint são de outra pessoa.
     if (tun.origin?.shared) return;
     navigation.navigate('TunnelDetail', { tunnel: tun });
   };
@@ -362,7 +380,10 @@ export default function HomeScreen({
    * acesso é o titular, ou o prazo do convite.
    */
   const onExcluir = useCallback((t: Tunnel) => {
-    if (t.origin?.shared) return;
+    // Vale para os dois casos: emprestado (é de outra pessoa) e do plano (o
+    // servidor continua cobrando e a próxima sincronização o traz de volta).
+    // O botão já nasce desabilitado; a guarda impede qualquer outro caminho.
+    if (!isEditableTunnel(t)) return;
 
     Alert.alert('Excluir túnel', `Deseja excluir "${t.name}"?`, [
       { text: 'Cancelar', style: 'cancel' },
@@ -426,7 +447,12 @@ export default function HomeScreen({
       busy={transicionando}
       onToggle={onToggle}
       onPress={onPress}
-      onEdit={(t) => navigation.navigate('TunnelForm', { tunnel: t })}
+      onEdit={(t) => {
+        // Editar um túnel do plano escreveria numa configuração que o
+        // provisionador reescreve na sincronização seguinte.
+        if (!isEditableTunnel(t)) return;
+        navigation.navigate('TunnelForm', { tunnel: t });
+      }}
       onShare={(t) => setCompartilhando(t)}
       onLeave={onSair}
       onDelete={onExcluir}

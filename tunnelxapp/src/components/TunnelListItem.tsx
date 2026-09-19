@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Switch, TouchableOpacity, Pressable } from 'react-native';
-import type { Tunnel } from '../models/Tunnel';
+import { isEditableTunnel, isSyncedTunnel, type Tunnel } from '../models/Tunnel';
 import { PencilSimple, Trash, CaretRight, ShareNetwork, UsersThree, SignOut } from 'phosphor-react-native';
 import { brand, colors, radius, shadow, spacing, type } from '../theme';
 
@@ -41,8 +41,27 @@ export default function TunnelListItem({
   const firstPeer = tunnel.peers?.[0];
   const ativo = isActive ?? !!tunnel.active;
 
+  /*
+   * Três tipos de túnel, com poderes diferentes.
+   *
+   *   manual      importado pelo próprio usuário (botão +, arquivo ou QR do
+   *               .conf). É dele: edita e exclui à vontade.
+   *
+   *   do plano    criado pelo sistema a partir da assinatura. Só visualização:
+   *               a configuração é gerada pelo provisionador e reescrita a cada
+   *               sincronização, então editar aqui seria escrever numa folha que
+   *               o servidor rasura em seguida — a alteração sumiria sem nunca
+   *               ter saído do aparelho. Excluir seria pior: some da lista, o
+   *               servidor continua cobrando por ele e a próxima sincronização
+   *               o traz de volta.
+   *
+   *   emprestado  de outra pessoa, via convite. Nem visualização: a chave e o
+   *               endpoint não são dele. Só usar e sair.
+   */
   const origem = tunnel.origin;
   const emprestado = !!origem?.shared;
+  const doPlano = (!!origem || isSyncedTunnel(tunnel.id)) && !emprestado;
+  const podeMexer = isEditableTunnel(tunnel);
 
   /*
    * O botão de compartilhar aparece só onde faz sentido.
@@ -102,6 +121,13 @@ export default function TunnelListItem({
           {emprestado ? (
             <View style={styles.seloEmprestado}>
               <Text style={styles.seloEmprestadoTexto}>CONVIDADO</Text>
+            </View>
+          ) : null}
+          {/* Diz por que os botões estão apagados, sem precisar de um toque
+              que não faz nada para descobrir. */}
+          {doPlano ? (
+            <View style={styles.seloPlano}>
+              <Text style={styles.seloPlanoTexto}>DO PLANO</Text>
             </View>
           ) : null}
         </View>
@@ -174,11 +200,29 @@ export default function TunnelListItem({
               <ShareNetwork size={18} color={colors.greenInk} weight="bold" />
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity style={styles.iconBtn} onPress={() => onEdit(tunnel)} hitSlop={6}>
-            <PencilSimple size={17} color={colors.textMuted} />
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => onEdit(tunnel)}
+            hitSlop={6}
+            disabled={!podeMexer}
+            accessibilityState={{ disabled: !podeMexer }}
+            accessibilityLabel={
+              podeMexer ? 'Editar túnel' : 'Túnel do plano: não pode ser editado'
+            }
+          >
+            <PencilSimple size={17} color={podeMexer ? colors.textMuted : colors.textDim} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => onDelete(tunnel)} hitSlop={6}>
-            <Trash size={17} color={colors.danger} />
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => onDelete(tunnel)}
+            hitSlop={6}
+            disabled={!podeMexer}
+            accessibilityState={{ disabled: !podeMexer }}
+            accessibilityLabel={
+              podeMexer ? 'Excluir túnel' : 'Túnel do plano: não pode ser excluído'
+            }
+          >
+            <Trash size={17} color={podeMexer ? colors.danger : colors.textDim} />
           </TouchableOpacity>
           <CaretRight size={14} color={colors.textDim} />
         </View>
@@ -239,6 +283,16 @@ const styles = StyleSheet.create({
     borderColor: colors.green,
   },
   seloEmprestadoTexto: { fontSize: 9, fontWeight: '800', color: colors.greenInk, letterSpacing: 0.8 },
+
+  seloPlano: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  seloPlanoTexto: { fontSize: 9, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.8 },
 
   ocupacao: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
   ocupacaoTexto: { ...type.tiny, color: colors.textMuted, fontWeight: '600' },
