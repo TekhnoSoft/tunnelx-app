@@ -8,6 +8,7 @@ export type RootStackParamList = {
   Plans: undefined;
   Checkout: undefined;
   Blocked: undefined;
+  PendingPix: undefined;
   Home: { initialTunnels?: Tunnel[] } | undefined;
   TunnelDetail: { tunnel: Tunnel };
   TunnelForm: { tunnel?: Tunnel } | undefined;

@@ -192,9 +192,19 @@ export async function fetchPlans(): Promise<ApiPlan[]> {
   return request<ApiPlan[]>('/app/plans');
 }
 
+/** Pix criado e ainda nao pago — o app retoma o MESMO codigo. */
+export type PendingPix = {
+  authorization_id: string;
+  status: string | null;
+  encoded_image: string | null;
+  payload: string | null;
+  expiration_date: string | null;
+};
+
 export async function fetchSubscription(): Promise<{
   subscription: ApiSubscription | null;
   access: Access;
+  pending_pix?: PendingPix | null;
 }> {
   return request('/app/subscription');
 }

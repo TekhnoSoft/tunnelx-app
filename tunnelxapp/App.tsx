@@ -26,7 +26,8 @@ import NewPasswordScreen from './src/screens/NewPasswordScreen';
 import PlansScreen from './src/screens/PlansScreen';
 import CheckoutScreen from './src/screens/CheckoutScreen';
 import BlockedScreen from './src/screens/BlockedScreen';
-import { fetchSubscription, type Access, type ApiPlan } from './src/api/client';
+import PendingPixScreen from './src/screens/PendingPixScreen';
+import { fetchSubscription, type Access, type ApiPlan, type PendingPix } from './src/api/client';
 import {
   loadToken,
   loadClient,
@@ -85,12 +86,16 @@ function App() {
   const [acesso, setAcesso] = useState<Access | null>(null);
   const [verificandoAcesso, setVerificandoAcesso] = useState(false);
   const [planoEscolhido, setPlanoEscolhido] = useState<ApiPlan | null>(null);
+  // Pix gerado e ainda nao pago: o app volta a mostrar o MESMO codigo em vez de
+  // empurrar a tela de planos, que estaria bloqueada por essa mesma assinatura.
+  const [pixPendente, setPixPendente] = useState<PendingPix | null>(null);
 
   const conferirAcesso = useCallback(async () => {
     setVerificandoAcesso(true);
     try {
       const r = await fetchSubscription();
       setAcesso(r.access);
+      setPixPendente(r.pending_pix ?? null);
     } catch (e) {
       // Sem resposta do servidor nao da para afirmar que esta liberado. Fica
       // nulo e a tela de planos assume - negar e o lado seguro do erro.
@@ -161,6 +166,7 @@ function App() {
     setNoCadastro(false);
     setAcesso(null);
     setPlanoEscolhido(null);
+    setPixPendente(null);
   };
 
   return (
@@ -248,6 +254,28 @@ function App() {
                     } catch (e) {
                       console.warn('[App] falha ao sincronizar após a assinatura', e);
                     }
+                  }}
+                />
+              )}
+            </Stack.Screen>
+          ) : pixPendente && !acesso?.allowed ? (
+            <Stack.Screen name="PendingPix" options={{ headerShown: false }}>
+              {() => (
+                <PendingPixScreen
+                  pix={pixPendente}
+                  onLiberado={async () => {
+                    await conferirAcesso();
+                    try {
+                      const { syncConnections } = await import('./src/services/sync');
+                      await syncConnections();
+                      setInitialTunnels(await loadTunnels());
+                    } catch (e) {
+                      console.warn('[App] falha ao sincronizar após o Pix', e);
+                    }
+                  }}
+                  onDesistir={async () => {
+                    setPixPendente(null);
+                    await conferirAcesso();
                   }}
                 />
               )}
