@@ -116,9 +116,21 @@ export async function syncConnections(): Promise<SyncResult> {
 
       porId.set(id, tunnel);
 
-      // O nativo precisa receber o .conf reserializado — é dele que o serviço
-      // Android monta a sessão.
-      await WireGuard.applyConfig({ id: tunnel.id, name: tunnel.name, conf: toWireGuardConf(tunnel) });
+      /*
+       * Só reescreve no nativo o que realmente mudou.
+       *
+       * Antes a sincronização acontecia de vez em quando e reaplicar sempre não
+       * custava nada. Agora ela roda também a cada verificação periódica, e
+       * reaplicar a configuração de um túnel LIGADO é mexer numa sessão em uso
+       * sem motivo. Comparar o .conf reserializado é exato: é literalmente o
+       * texto que o nativo recebe.
+       */
+      const confNovo = toWireGuardConf(tunnel);
+      const mudou = !anterior || toWireGuardConf(anterior) !== confNovo;
+
+      if (mudou) {
+        await WireGuard.applyConfig({ id: tunnel.id, name: tunnel.name, conf: confNovo });
+      }
 
       resultado.imported += 1;
     } catch (e: any) {

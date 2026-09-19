@@ -149,6 +149,34 @@ export async function fetchConnections(): Promise<ApiConnection[]> {
   return request<ApiConnection[]>('/app/connections');
 }
 
+export type ConnectionsState = {
+  /** Resumo de tudo que obriga o app a reagir. Igual = nada mudou. */
+  revision: string;
+  items: {
+    id: number;
+    shared: boolean;
+    ready: boolean;
+    status: string;
+    updatedAt: string;
+    expires_at: string | null;
+  }[];
+};
+
+/**
+ * Estado das conexões sem a configuração nem o QR.
+ *
+ * Existe para poder ser chamado de minuto em minuto: a resposta tem centenas de
+ * bytes, enquanto `fetchConnections` traz o .conf de cada túnel. É o que permite
+ * o app perceber sozinho que o titular removeu o convidado, em vez de o
+ * convidado continuar usando uma conexão à qual não tem mais direito até
+ * reabrir o aplicativo.
+ *
+ * Um 402 aqui significa que o acesso acabou — não é falha de rede.
+ */
+export async function fetchConnectionsState(): Promise<ConnectionsState> {
+  return request<ConnectionsState>('/app/connections/state');
+}
+
 /**
  * Troca de senha — também é o que conclui o primeiro acesso.
  *

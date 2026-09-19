@@ -19,6 +19,7 @@ import type { Tunnel } from '../models/Tunnel';
 import { saveTunnels, removeTunnel, loadTunnels } from '../storage/tunnels';
 import { syncConnections } from '../services/sync';
 import { leaveShare } from '../api/client';
+import { watchAccess } from '../services/accessWatch';
 import * as WireGuard from '../native/WireGuard';
 import { toWireGuardConf } from '../utils/wgConfig';
 import { Plus, FileArrowDown, QrCode, PencilSimple, ShieldWarning, WarningCircle, CaretRight, ShareNetwork, Clock } from 'phosphor-react-native';
@@ -50,6 +51,14 @@ type Props = {
   onContratarPlano?: () => void;
 
   /**
+   * O servidor deixou de reconhecer o acesso — em geral porque o titular
+   * removeu o convidado, ou porque o prazo do convite venceu.
+   *
+   * A Home não decide para onde ir: quem roteia é o App, com o veredito novo.
+   */
+  onAcessoPerdido?: () => void;
+
+  /**
    * Assinatura própria começada e ainda não paga.
    *
    * Sem esta faixa o Pix do convidado ficaria invisível: a tela de pagamento
@@ -68,6 +77,7 @@ export default function HomeScreen({
   onResolverPagamento,
   convidadoDe,
   onContratarPlano,
+  onAcessoPerdido,
   pagamentoPendente,
   onRetomarPagamento,
 }: Props) {
@@ -84,6 +94,39 @@ export default function HomeScreen({
   // Espelho do `busy` em estado: o ref sozinho nao re-renderiza, entao a UI
   // ficava sem indicar que havia uma transicao em curso.
   const [transicionando, setTransicionando] = useState(false);
+
+  /*
+   * Vigia o acesso enquanto a Home está montada.
+   *
+   * É aqui que a remoção feita pelo titular chega ao convidado: sem isto ele
+   * continuaria usando a conexão até reabrir o aplicativo. O aviso é explícito
+   * porque o túnel some da lista e a VPN cai — sem explicação, pareceria defeito.
+   */
+  useEffect(() => {
+    const parar = watchAccess({
+      onEvento: (e) => {
+        if (e.tipo === 'acesso_perdido') {
+          Alert.alert(
+            'Acesso encerrado',
+            'Sua conexão compartilhada foi encerrada pelo titular ou o prazo terminou.'
+          );
+          onAcessoPerdido?.();
+          return;
+        }
+
+        setTunnels(e.tunnels);
+        if (e.removidos > 0) {
+          Alert.alert(
+            e.removidos === 1 ? 'Conexão removida' : 'Conexões removidas',
+            e.removidos === 1
+              ? 'Uma conexão que você usava não está mais disponível. Se era compartilhada, o titular encerrou o acesso.'
+              : `${e.removidos} conexões que você usava não estão mais disponíveis.`
+          );
+        }
+      },
+    });
+    return parar;
+  }, [onAcessoPerdido]);
 
   // Recarrega ao focar a Home para refletir inclusões/edições/exclusões
   useFocusEffect(

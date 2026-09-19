@@ -525,6 +525,9 @@ function App() {
                        precisa ver convite para assinar. */
                     convidadoDe={acesso?.state === 'GUEST' ? nomeDoTitular : null}
                     onContratarPlano={() => setTelaPropria('planos')}
+                    // Acesso cortado pelo titular: reavalia e deixa o roteamento
+                    // levar para os planos ou para o bloqueio, conforme o caso.
+                    onAcessoPerdido={conferirAcesso}
                     pagamentoPendente={acesso?.state === 'GUEST' && !!pixPendente}
                     onRetomarPagamento={() => setTelaPropria('pix')}
                   />
