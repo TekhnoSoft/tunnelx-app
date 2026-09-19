@@ -24,6 +24,16 @@ class WireGuardModule: RCTEventEmitter {
   private var listening = false
   private var currentTunnelId: String?
 
+  /// Referencia FORTE ao manager.
+  ///
+  /// O iOS publica `.NEVPNStatusDidChange` a partir do `NEVPNConnection` do
+  /// manager carregado. Enquanto o manager existia apenas como variavel local
+  /// do closure de `loadAllFromPreferences`, ele era desalocado ao fim do
+  /// closure e nenhuma notificacao chegava -- o observer existia, mas nada o
+  /// alimentava. Sem esta referencia viva, o evento `TunnelXVpnStatus` nunca
+  /// dispara por mudanca real de estado e a UI so muda por polling.
+  private var manager: NETunnelProviderManager?
+
   // MARK: - Ciclo de vida do modulo
 
   override static func requiresMainQueueSetup() -> Bool { return false }
@@ -38,6 +48,17 @@ class WireGuardModule: RCTEventEmitter {
       name: .NEVPNStatusDidChange,
       object: nil
     )
+    // Carrega e RETEM o manager ja existente, para que o iOS tenha de onde
+    // postar as notificacoes de status assim que o JS comeca a ouvir.
+    retainExistingManager()
+  }
+
+  /// Guarda o manager provisionado, se houver, sem cria-lo.
+  private func retainExistingManager(completion: (() -> Void)? = nil) {
+    NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, _ in
+      if let existing = managers?.first { self?.manager = existing }
+      completion?()
+    }
   }
 
   override func stopObserving() {
@@ -191,6 +212,8 @@ class WireGuardModule: RCTEventEmitter {
             completion(.failure(loadError))
             return
           }
+          // Retem: e deste manager que saem as notificacoes de status.
+          self.manager = manager
           completion(.success(manager))
         }
       }
@@ -283,6 +306,7 @@ class WireGuardModule: RCTEventEmitter {
         resolve(nil)
         return
       }
+      self.manager = manager
       manager.connection.stopVPNTunnel()
       resolve(nil)
     }
@@ -303,6 +327,7 @@ class WireGuardModule: RCTEventEmitter {
         resolve("down")
         return
       }
+      self.manager = manager
       resolve(Self.mapUpDown(manager.connection.status))
     }
   }
@@ -317,6 +342,7 @@ class WireGuardModule: RCTEventEmitter {
         resolve(false)
         return
       }
+      self.manager = manager
       resolve(manager.connection.status == .connected)
     }
   }
@@ -331,6 +357,7 @@ class WireGuardModule: RCTEventEmitter {
         resolve(["connected": false, "tunnelId": self.currentTunnelId as Any])
         return
       }
+      self.manager = manager
       let proto = manager.protocolConfiguration as? NETunnelProviderProtocol
       let id = proto?.providerConfiguration?["id"] as? String ?? self.currentTunnelId
       resolve([

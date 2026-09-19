@@ -37,8 +37,13 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
       return
     }
 
-    guard let configuration = try? TunnelConfiguration(fromWgQuickConfig: confText) else {
-      os_log("O .conf existe mas nao e um wg-quick valido", log: Self.log, type: .error)
+    let configuration: TunnelConfiguration
+    do {
+      configuration = try TunnelConfiguration(fromWgQuickConfig: Self.sanitize(confText))
+    } catch {
+      // Engolir o erro com `try?` escondia exatamente qual chave derrubou o
+      // parse -- e o sintoma era o tunel "conectar e cair" sem explicacao.
+      os_log("Config invalida: %{public}@", log: Self.log, type: .error, String(describing: error))
       completionHandler(PacketTunnelError.invalidConfiguration)
       return
     }
@@ -83,6 +88,65 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     default:
       completionHandler?(nil)
     }
+  }
+
+  // MARK: - Saneamento do .conf
+
+  /// Chaves que o parser do WireGuardKit aceita em cada secao.
+  private static let interfaceKeys: Set<String> = ["privatekey", "listenport", "address", "dns", "mtu"]
+  private static let peerKeys: Set<String> = ["publickey", "presharedkey", "allowedips", "endpoint", "persistentkeepalive"]
+
+  /// Remove chaves que o parser rejeitaria, preservando o resto intacto.
+  ///
+  /// O app emite `Name = ...` dentro de [Interface] porque o servico do Android
+  /// usa esse valor como titulo da sessao. O parser do WireGuardKit, porem,
+  /// lanca `interfaceHasUnrecognizedKey` em qualquer chave fora da lista dele --
+  /// entao TODO tunel falhava aqui, em qualquer configuracao. Tirar `Name` do
+  /// gerador quebraria o Android, logo o filtro fica deste lado.
+  ///
+  /// Isso tambem destrava .conf de terceiros com chaves de wg-quick que nao se
+  /// aplicam ao iOS (Table, PostUp, PreDown, SaveConfig, FwMark): sao hooks de
+  /// shell, sem efeito dentro de uma Network Extension.
+  static func sanitize(_ conf: String) -> String {
+    var out: [String] = []
+    var inInterface = false
+    var inPeer = false
+    var dropped: [String] = []
+
+    for rawLine in conf.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+      let line = String(rawLine)
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      let withoutComment = trimmed.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+        .trimmingCharacters(in: .whitespaces)
+
+      if withoutComment.lowercased() == "[interface]" {
+        inInterface = true; inPeer = false; out.append(line); continue
+      }
+      if withoutComment.lowercased() == "[peer]" {
+        inPeer = true; inInterface = false; out.append(line); continue
+      }
+
+      // Linha vazia, comentario puro ou sem '=' segue como esta.
+      guard (inInterface || inPeer), withoutComment.contains("=") else {
+        out.append(line); continue
+      }
+
+      let key = withoutComment.split(separator: "=", maxSplits: 1)[0]
+        .trimmingCharacters(in: .whitespaces)
+        .lowercased()
+      let allowed = inInterface ? interfaceKeys : peerKeys
+      if allowed.contains(key) {
+        out.append(line)
+      } else {
+        dropped.append(key)
+      }
+    }
+
+    if !dropped.isEmpty {
+      os_log("Chaves ignoradas no .conf: %{public}@",
+             log: log, type: .info, dropped.joined(separator: ", "))
+    }
+    return out.joined(separator: "\n")
   }
 
   // MARK: - Origem da configuracao
