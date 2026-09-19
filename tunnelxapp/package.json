@@ -19,6 +19,7 @@
     "react": "19.1.1",
     "react-native": "0.82.1",
     "react-native-permissions": "^5.4.4",
+    "react-native-qrcode-svg": "^6.3.24",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^4.6.0",
     "react-native-svg": "^15.1.0",

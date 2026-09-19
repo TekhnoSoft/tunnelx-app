@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowRight } from 'phosphor-react-native';
+import { ArrowRight, QrCode } from 'phosphor-react-native';
 import { login } from '../api/client';
 import { syncConnections } from '../services/sync';
 import type { SessionClient } from '../storage/session';
@@ -30,9 +30,22 @@ type Props = {
    */
   onNeedsNewPassword: (client: SessionClient, senhaProvisoria: string) => void;
   onCriarConta: () => void;
+  /**
+   * Acesso provisionado: alguém compartilhou um túnel e vai mostrar o QR.
+   *
+   * Fica na tela de entrada porque é onde o convidado chega — ele não tem conta
+   * nem plano, e qualquer caminho que passe por login ou pagamento antes de ler
+   * o convite o deixaria sem entender o que está fazendo ali.
+   */
+  onAcessoProvisionado: () => void;
 };
 
-export default function LoginScreen({ onSigned, onNeedsNewPassword, onCriarConta }: Props) {
+export default function LoginScreen({
+  onSigned,
+  onNeedsNewPassword,
+  onCriarConta,
+  onAcessoProvisionado,
+}: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const m = metrics(width);
@@ -148,9 +161,21 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onCriarConta
 
           <Button label="Criar minha conta" variant="ghost" onPress={onCriarConta} />
 
+          <Button
+            label="Acesso provisionado"
+            variant="ghost"
+            onPress={onAcessoProvisionado}
+            icon={<QrCode size={18} color={colors.greenInk} weight="duotone" />}
+            style={styles.botaoConvite}
+          />
+
           <Text style={styles.ajuda}>
             Ainda não é cliente? Crie sua conta em um minuto e escolha seu plano. Se você recebeu
             uma senha da TunnelX, é só entrar acima com ela.
+          </Text>
+          <Text style={styles.ajuda}>
+            <Text style={styles.destaque}>Acesso provisionado</Text> é para quem vai usar a conexão
+            de um familiar: leia o QR que ele mostrar no aplicativo dele.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -182,6 +207,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   botao: { marginTop: spacing.sm },
+  botaoConvite: { marginTop: spacing.md },
   divisor: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginVertical: spacing.xl },
   linha: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   divisorTexto: { ...type.tiny, color: colors.textDim, fontWeight: '500' },

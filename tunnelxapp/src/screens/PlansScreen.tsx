@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, WifiHigh, Users, ArrowRight, Package } from 'phosphor-react-native';
+import { Check, WifiHigh, Users, ArrowRight, ArrowLeft, Package } from 'phosphor-react-native';
 import { fetchPlans, type ApiPlan } from '../api/client';
 import Screen from '../components/Screen';
 import Button from '../components/Button';
@@ -20,6 +20,18 @@ type Props = {
   aviso?: string | null;
   onEscolher: (plano: ApiPlan) => void;
   onSair?: () => void;
+  /**
+   * Fecha a tela sem assinar.
+   *
+   * Só existe quando o cliente JÁ tem acesso por outro caminho — hoje, o
+   * convidado que usa o túnel de um familiar. Para quem não tem acesso nenhum a
+   * tela continua sem saída: um "voltar" ali levaria a uma Home vazia, porque o
+   * servidor recusa as conexões sem assinatura.
+   */
+  onVoltar?: () => void;
+  /** Título alternativo, para quem está aqui por vontade e não por bloqueio. */
+  titulo?: string;
+  subtitulo?: string;
 };
 
 /** 1024 MB vira "1 GB" — ninguém lê pacote de dados em megabyte. */
@@ -46,7 +58,14 @@ function sufixoDoCiclo(cycle: string): string {
   return '/mês';
 }
 
-export default function PlansScreen({ aviso, onEscolher, onSair }: Props) {
+export default function PlansScreen({
+  aviso,
+  onEscolher,
+  onSair,
+  onVoltar,
+  titulo,
+  subtitulo,
+}: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const m = metrics(width);
@@ -84,9 +103,16 @@ export default function PlansScreen({ aviso, onEscolher, onSair }: Props) {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.titulo}>Escolha seu plano</Text>
+        {onVoltar ? (
+          <Pressable onPress={onVoltar} hitSlop={10} style={styles.voltar}>
+            <ArrowLeft size={18} color={colors.textMuted} weight="bold" />
+            <Text style={styles.voltarTexto}>Voltar</Text>
+          </Pressable>
+        ) : null}
+
+        <Text style={styles.titulo}>{titulo || 'Escolha seu plano'}</Text>
         <Text style={styles.subtitulo}>
-          Assinatura mensal, sem fidelidade. Você pode cancelar quando quiser.
+          {subtitulo || 'Assinatura mensal, sem fidelidade. Você pode cancelar quando quiser.'}
         </Text>
 
         {aviso ? (
@@ -218,6 +244,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
+  voltar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  voltarTexto: { ...type.small, color: colors.textMuted, fontWeight: '600' },
   aviso: {
     backgroundColor: '#FEF3C7',
     borderWidth: StyleSheet.hairlineWidth,

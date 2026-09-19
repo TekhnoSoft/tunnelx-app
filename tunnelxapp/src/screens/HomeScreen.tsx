@@ -14,11 +14,14 @@ import TunnelListItem from '../components/TunnelListItem';
 import Screen from '../components/Screen';
 import ConnectionOrb from '../components/ConnectionOrb';
 import BottomSheet from '../components/BottomSheet';
+import ShareSheet from '../components/ShareSheet';
 import type { Tunnel } from '../models/Tunnel';
 import { saveTunnels, removeTunnel, loadTunnels } from '../storage/tunnels';
+import { syncConnections } from '../services/sync';
+import { leaveShare } from '../api/client';
 import * as WireGuard from '../native/WireGuard';
 import { toWireGuardConf } from '../utils/wgConfig';
-import { Plus, FileArrowDown, QrCode, PencilSimple, ShieldWarning, WarningCircle, CaretRight } from 'phosphor-react-native';
+import { Plus, FileArrowDown, QrCode, PencilSimple, ShieldWarning, WarningCircle, CaretRight, ShareNetwork, Clock } from 'phosphor-react-native';
 // Importação via arquivo será feita pela tela dedicada (ConfImport)
 import { RESULTS, checkNotifications, requestNotifications } from 'react-native-permissions';
 import { colors, radius, shadow, spacing, type } from '../theme';
@@ -33,11 +36,46 @@ type Props = {
    */
   avisoAssinatura?: string | null;
   onResolverPagamento?: () => void;
+
+  /**
+   * Usa a conexão de outra pessoa e não tem plano próprio.
+   *
+   * O convidado tem acesso de verdade — não é um estado degradado, e por isso a
+   * faixa convida em vez de alertar. Ele pode seguir assim indefinidamente: quem
+   * paga é o titular, e o acesso termina quando o titular quiser ou o prazo
+   * vencer. É justamente essa dependência que faz valer a pena oferecer um plano
+   * próprio, sem empurrar.
+   */
+  convidadoDe?: string | null;
+  onContratarPlano?: () => void;
+
+  /**
+   * Assinatura própria começada e ainda não paga.
+   *
+   * Sem esta faixa o Pix do convidado ficaria invisível: a tela de pagamento
+   * pendente só aparece para quem está SEM acesso, e o convidado tem acesso pelo
+   * convite. Ele geraria o código, fecharia o app e não encontraria mais o
+   * caminho de volta.
+   */
+  pagamentoPendente?: boolean;
+  onRetomarPagamento?: () => void;
 };
 
-export default function HomeScreen({ navigation, initialTunnels = [], avisoAssinatura, onResolverPagamento }: Props) {
+export default function HomeScreen({
+  navigation,
+  initialTunnels = [],
+  avisoAssinatura,
+  onResolverPagamento,
+  convidadoDe,
+  onContratarPlano,
+  pagamentoPendente,
+  onRetomarPagamento,
+}: Props) {
   const [tunnels, setTunnels] = useState<Tunnel[]>(initialTunnels);
   const [showSheet, setShowSheet] = useState(false);
+  // Qual túnel está com a folha de compartilhamento aberta. Guardar o túnel, e
+  // não só um booleano, evita a folha piscar com os dados do anterior.
+  const [compartilhando, setCompartilhando] = useState<Tunnel | null>(null);
   const [connected, setConnected] = useState<boolean>(false);
   const m = useLayout();
   // activeId: qual tunel o NATIVO diz estar ativo. busy: transicao em andamento.
@@ -222,6 +260,73 @@ export default function HomeScreen({ navigation, initialTunnels = [], avisoAssin
     navigation.navigate('TunnelForm');
   };
 
+  /*
+   * Recarrega a ocupação depois de convidar ou remover alguém.
+   *
+   * As vagas vivem no servidor e chegam junto das conexões; sem uma nova
+   * sincronização, o card continuaria mostrando o número de antes e o usuário
+   * acharia que a ação não pegou.
+   */
+  const atualizarVagas = useCallback(async () => {
+    try {
+      const r = await syncConnections();
+      setTunnels(r.tunnels);
+    } catch {
+      // Falha de rede aqui não pode derrubar a folha: o convite já foi criado
+      // no servidor, e a lista se corrige sozinha na próxima abertura.
+    }
+  }, []);
+
+  /*
+   * Excluir — e o que "excluir" significa depende de quem é o túnel.
+   *
+   * Num túnel emprestado, apagar só do aparelho não resolve nada: o convite
+   * continua ativo no servidor, ocupando uma vaga do plano do titular, e a
+   * próxima sincronização traz o túnel de volta. Sair de verdade é devolver a
+   * vaga — e só então remover daqui.
+   */
+  const onExcluir = useCallback((t: Tunnel) => {
+    const emprestado = !!t.origin?.shared;
+    const shareId = t.origin?.shareId;
+
+    if (emprestado && shareId) {
+      const dono = t.origin?.ownerName || 'o titular';
+      Alert.alert(
+        'Sair desta conexão',
+        `Você deixará de usar a conexão de ${dono} e a vaga ficará livre. Para voltar, será preciso um novo convite.`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Sair',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await leaveShare(shareId);
+              } catch (e: any) {
+                // O convite pode já ter sido revogado pelo titular. Não é
+                // motivo para manter o túnel na lista.
+                console.warn('[Home] falha ao sair do túnel compartilhado', e);
+              }
+              setTunnels(await removeTunnel(t.id));
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    Alert.alert('Excluir túnel', `Deseja excluir "${t.name}"?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: async () => {
+          setTunnels(await removeTunnel(t.id));
+        },
+      },
+    ]);
+  }, []);
+
   const renderItem = ({ item }: { item: Tunnel }) => (
     <TunnelListItem
       tunnel={item}
@@ -230,17 +335,8 @@ export default function HomeScreen({ navigation, initialTunnels = [], avisoAssin
       onToggle={onToggle}
       onPress={onPress}
       onEdit={(t) => navigation.navigate('TunnelForm', { tunnel: t })}
-      onDelete={(t) => {
-        Alert.alert('Excluir túnel', `Deseja excluir "${t.name}"?`, [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Excluir', style: 'destructive', onPress: async () => {
-              const next = await removeTunnel(t.id);
-              setTunnels(next);
-            }
-          }
-        ]);
-      }}
+      onShare={(t) => setCompartilhando(t)}
+      onDelete={onExcluir}
     />
   );
 
@@ -259,6 +355,37 @@ export default function HomeScreen({ navigation, initialTunnels = [], avisoAssin
           <WarningCircle size={18} color="#92400E" weight="duotone" />
           <Text style={styles.faixaAvisoTexto}>{avisoAssinatura}</Text>
           <CaretRight size={14} color="#92400E" />
+        </Pressable>
+      ) : null}
+
+      {/* Pagamento em aberto de um plano PRÓPRIO. Vem antes do convite: quem já
+          começou a assinar não precisa ver a oferta de novo. */}
+      {pagamentoPendente ? (
+        <Pressable
+          onPress={onRetomarPagamento}
+          style={({ pressed }) => [styles.faixaPix, pressed && { opacity: 0.85 }]}
+        >
+          <Clock size={18} color={colors.primary} weight="duotone" />
+          <Text style={styles.faixaPixTexto}>
+            Seu plano está aguardando o pagamento. Toque para retomar.
+          </Text>
+          <CaretRight size={14} color={colors.primary} />
+        </Pressable>
+      ) : convidadoDe ? (
+        <Pressable
+          onPress={onContratarPlano}
+          style={({ pressed }) => [styles.faixaConvite, pressed && { opacity: 0.85 }]}
+        >
+          <ShareNetwork size={18} color={colors.greenInk} weight="duotone" />
+          <View style={styles.faixaConviteTextos}>
+            <Text style={styles.faixaConviteTitulo}>
+              Você usa a conexão de {convidadoDe}
+            </Text>
+            <Text style={styles.faixaConviteTexto}>
+              Quer a sua, sem depender de ninguém? Veja os planos.
+            </Text>
+          </View>
+          <CaretRight size={14} color={colors.greenInk} />
         </Pressable>
       ) : null}
 
@@ -326,6 +453,24 @@ export default function HomeScreen({ navigation, initialTunnels = [], avisoAssin
         <View style={styles.fabAro} />
         <Plus size={26} color="#fff" weight="bold" />
       </Pressable>
+
+      {/* Folha de compartilhamento: própria, e não uma opção dentro da de
+          "Adicionar túnel", porque ela pertence a UM túnel — o que foi tocado.
+          Montada só quando há alvo, para não carregar as vagas do servidor de
+          um túnel que ninguém abriu. */}
+      <BottomSheet
+        visible={!!compartilhando}
+        onClose={() => setCompartilhando(null)}
+      >
+        {compartilhando ? (
+          <ShareSheet
+            connectionId={compartilhando.origin?.connectionId ?? 0}
+            connectionName={compartilhando.name}
+            onChanged={atualizarVagas}
+            onClose={() => setCompartilhando(null)}
+          />
+        ) : null}
+      </BottomSheet>
 
       <BottomSheet
         visible={showSheet}
@@ -397,6 +542,37 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   faixaAvisoTexto: { ...type.small, color: '#92400E', flex: 1, lineHeight: 18 },
+
+  // Verde, e não âmbar: o convidado não tem problema nenhum a resolver.
+  faixaConvite: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.greenSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.green,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  faixaConviteTextos: { flex: 1 },
+  faixaConviteTitulo: { ...type.small, color: colors.text, fontWeight: '700' },
+  faixaConviteTexto: { ...type.tiny, color: colors.textMuted, marginTop: 2, lineHeight: 16 },
+
+  faixaPix: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  faixaPixTexto: { ...type.small, color: colors.text, flex: 1, lineHeight: 18 },
   tituloLista: {
     flexDirection: 'row',
     alignItems: 'center',

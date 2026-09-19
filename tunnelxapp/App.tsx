@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { StatusBar, TouchableOpacity } from 'react-native';
+import { Alert, StatusBar, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { enableScreens } from 'react-native-screens';
@@ -27,7 +27,14 @@ import PlansScreen from './src/screens/PlansScreen';
 import CheckoutScreen from './src/screens/CheckoutScreen';
 import BlockedScreen from './src/screens/BlockedScreen';
 import PendingPixScreen from './src/screens/PendingPixScreen';
-import { fetchSubscription, type Access, type ApiPlan, type PendingPix } from './src/api/client';
+import ShareInviteScreen from './src/screens/ShareInviteScreen';
+import {
+  fetchSubscription,
+  acceptShare,
+  type Access,
+  type ApiPlan,
+  type PendingPix,
+} from './src/api/client';
 import {
   loadToken,
   loadClient,
@@ -74,6 +81,43 @@ function App() {
   // some se o app for fechado no meio (a tela então volta a pedi-la).
   const [senhaProvisoria, setSenhaProvisoria] = useState<string | undefined>();
   const [noCadastro, setNoCadastro] = useState(false);
+
+  /*
+   * Acesso provisionado: o convite lido da câmera.
+   *
+   * `noConvite` é a tela do leitor. `convitePendente` é o token já validado,
+   * esperando uma sessão para ser aceito — quem escaneia costuma não ter conta,
+   * e o aceite exige estar autenticado. Guardar o token aqui é o que permite
+   * atravessar o login ou o cadastro sem perder o convite pelo caminho.
+   *
+   * Só em memória, de propósito: um token que sobrevivesse ao fechamento do app
+   * seria aceito depois, fora do contexto, por quem talvez nem lembre de ter
+   * escaneado.
+   */
+  const [noConvite, setNoConvite] = useState(false);
+  const [convitePendente, setConvitePendente] = useState<string | null>(null);
+
+  /*
+   * Tela de assinatura aberta POR VONTADE, não por bloqueio.
+   *
+   * O roteamento abaixo é um funil: cada tela aparece porque a anterior negou
+   * acesso. O convidado quebra isso — ele tem acesso liberado e mesmo assim
+   * pode querer o plano dele, já que hoje depende de um familiar que pode
+   * encerrar o compartilhamento a qualquer momento.
+   *
+   * Um estado à parte, e não um desvio no funil, porque a diferença é justamente
+   * ter saída: destas telas dá para voltar para a Home, e das do funil não.
+   */
+  const [telaPropria, setTelaPropria] = useState<null | 'planos' | 'pix'>(null);
+
+  /*
+   * Quem emprestou o túnel, para a faixa da Home poder dizer o nome.
+   *
+   * Sai da própria lista sincronizada em vez de uma consulta nova: o nome já
+   * veio junto das conexões, e um convidado tem no máximo um punhado delas.
+   */
+  const nomeDoTitular =
+    initialTunnels.find((t) => t.origin?.shared)?.origin?.ownerName || 'um familiar';
 
   /*
    * Acesso pago: quem decide e o servidor.
@@ -127,9 +171,49 @@ function App() {
   }, []);
 
   // Confere ao entrar e sempre que a sessao muda.
+  //
+  // Segura enquanto houver convite a aceitar: sem isto o app consultaria o
+  // acesso ANTES do aceite, veria "sem assinatura" e jogaria o convidado na
+  // tela de planos — para depois o convite entrar e a tela mudar sozinha.
   useEffect(() => {
-    if (client && !trocaPendente) conferirAcesso();
-  }, [client, trocaPendente, conferirAcesso]);
+    if (client && !trocaPendente && !convitePendente) conferirAcesso();
+  }, [client, trocaPendente, convitePendente, conferirAcesso]);
+
+  /*
+   * Aceita o convite assim que existe sessão.
+   *
+   * O aceite é o que cria o vínculo no servidor; antes dele o convidado não tem
+   * direito a nada. Zerar `convitePendente` no fim (em qualquer desfecho)
+   * destrava o efeito acima, que então consulta o acesso já com o convite valendo.
+   */
+  useEffect(() => {
+    if (!client || trocaPendente || !convitePendente) return;
+
+    let vivo = true;
+    (async () => {
+      try {
+        const r = await acceptShare(convitePendente);
+        if (vivo) {
+          Alert.alert(
+            'Acesso liberado',
+            `Você entrou na conexão de ${r.share.owner_name}. ${r.share.expires_text}.`
+          );
+        }
+      } catch (e: any) {
+        // O convite pode ter expirado, sido usado por outra pessoa ou o túnel
+        // ter enchido enquanto a conta era criada. A conta continua criada, e a
+        // pessoa segue para a tela de planos — dizer o motivo evita que ela
+        // ache que o app simplesmente ignorou o QR.
+        if (vivo) Alert.alert('Convite não aceito', e?.message || 'Peça um novo QR ao titular.');
+      } finally {
+        if (vivo) setConvitePendente(null);
+      }
+    })();
+
+    return () => {
+      vivo = false;
+    };
+  }, [client, trocaPendente, convitePendente]);
 
   useEffect(() => {
     (async () => {
@@ -184,6 +268,9 @@ function App() {
     setTrocaPendente(false);
     setSenhaProvisoria(undefined);
     setNoCadastro(false);
+    setNoConvite(false);
+    setConvitePendente(null);
+    setTelaPropria(null);
     setAcesso(null);
     setPlanoEscolhido(null);
     setPixPendente(null);
@@ -216,7 +303,26 @@ function App() {
             <Stack.Screen name="Splash" component={SplashScreen} options={{ headerShown: false }} />
           ) : !client ? (
             // Sem sessão não há o que mostrar: as conexões pertencem a uma conta.
-            noCadastro ? (
+            // A exceção é o convite: ele é lido ANTES de qualquer cadastro, para
+            // a pessoa saber de quem é e por quanto tempo vale antes de decidir.
+            noConvite ? (
+              <Stack.Screen name="ShareInvite" options={{ headerShown: false }}>
+                {() => (
+                  <ShareInviteScreen
+                    onEntrar={(token) => {
+                      setConvitePendente(token);
+                      setNoConvite(false);
+                    }}
+                    onCadastrar={(token) => {
+                      setConvitePendente(token);
+                      setNoConvite(false);
+                      setNoCadastro(true);
+                    }}
+                    onVoltar={() => setNoConvite(false)}
+                  />
+                )}
+              </Stack.Screen>
+            ) : noCadastro ? (
               <Stack.Screen name="Register" options={{ headerShown: false }}>
                 {() => (
                   <RegisterScreen
@@ -227,7 +333,12 @@ function App() {
                       // ainda não existe, então conferirAcesso leva aos planos.
                       setClient(c);
                     }}
-                    onCancel={() => setNoCadastro(false)}
+                    onCancel={() => {
+                      setNoCadastro(false);
+                      // Desistiu do cadastro: o convite não pode ficar guardado
+                      // para ser aceito num login futuro que não tem relação.
+                      setConvitePendente(null);
+                    }}
                   />
                 )}
               </Stack.Screen>
@@ -238,6 +349,7 @@ function App() {
                     onSigned={setClient}
                     onNeedsNewPassword={pedirNovaSenha}
                     onCriarConta={() => setNoCadastro(true)}
+                    onAcessoProvisionado={() => setNoConvite(true)}
                   />
                 )}
               </Stack.Screen>
@@ -300,6 +412,48 @@ function App() {
                 />
               )}
             </Stack.Screen>
+          ) : acesso?.allowed && telaPropria === 'planos' ? (
+            // Escolha de plano COM saída: quem chega aqui já tem acesso (é
+            // convidado de alguém) e está só avaliando ter o próprio.
+            <Stack.Screen name="Plans" options={{ headerShown: false }}>
+              {() => (
+                <PlansScreen
+                  titulo="Tenha sua própria conexão"
+                  subtitulo={
+                    acesso.state === 'GUEST'
+                      ? 'Hoje você usa a conexão de outra pessoa. Com um plano seu, o acesso não depende de ninguém — e você ainda pode compartilhar com a sua família.'
+                      : 'Assinatura mensal, sem fidelidade. Você pode cancelar quando quiser.'
+                  }
+                  onEscolher={(p) => {
+                    setTelaPropria(null);
+                    setPlanoEscolhido(p);
+                  }}
+                  onVoltar={() => setTelaPropria(null)}
+                />
+              )}
+            </Stack.Screen>
+          ) : acesso?.allowed && telaPropria === 'pix' && pixPendente ? (
+            <Stack.Screen name="PendingPix" options={{ headerShown: false }}>
+              {() => (
+                <PendingPixScreen
+                  pix={pixPendente}
+                  onLiberado={async () => {
+                    setTelaPropria(null);
+                    await conferirAcesso();
+                    try {
+                      const { syncConnections } = await import('./src/services/sync');
+                      await syncConnections();
+                      setInitialTunnels(await loadTunnels());
+                    } catch (e) {
+                      console.warn('[App] falha ao sincronizar após o Pix', e);
+                    }
+                  }}
+                  // Volta para a Home, e não para os planos: o acesso do convite
+                  // continua valendo e o túnel emprestado está lá.
+                  onDesistir={() => setTelaPropria(null)}
+                />
+              )}
+            </Stack.Screen>
           ) : acesso?.state === 'BLOCKED' ? (
             // Carência esgotada. Tela sem saída: o servidor já recusa as
             // conexões neste estado, então "continuar mesmo assim" só levaria a
@@ -350,6 +504,12 @@ function App() {
                     initialTunnels={initialTunnels}
                     avisoAssinatura={acesso?.state === 'GRACE' ? acesso.message : null}
                     onResolverPagamento={conferirAcesso}
+                    /* Só o convidado recebe a oferta: quem já paga um plano não
+                       precisa ver convite para assinar. */
+                    convidadoDe={acesso?.state === 'GUEST' ? nomeDoTitular : null}
+                    onContratarPlano={() => setTelaPropria('planos')}
+                    pagamentoPendente={acesso?.state === 'GUEST' && !!pixPendente}
+                    onRetomarPagamento={() => setTelaPropria('pix')}
                   />
                 )}
               </Stack.Screen>

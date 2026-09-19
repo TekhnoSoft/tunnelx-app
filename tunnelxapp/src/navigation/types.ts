@@ -14,5 +14,6 @@ export type RootStackParamList = {
   TunnelForm: { tunnel?: Tunnel } | undefined;
   Settings: undefined;
   QRScan: undefined;
+  ShareInvite: undefined;
   ConfImport: undefined;
 };

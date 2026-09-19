@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Switch, TouchableOpacity, Pressable } from 'react-native';
 import type { Tunnel } from '../models/Tunnel';
-import { PencilSimple, Trash, CaretRight } from 'phosphor-react-native';
+import { PencilSimple, Trash, CaretRight, ShareNetwork, UsersThree } from 'phosphor-react-native';
 import { brand, colors, radius, shadow, spacing, type } from '../theme';
 
 type Props = {
@@ -14,6 +14,8 @@ type Props = {
   onPress: (tunnel: Tunnel) => void;
   onEdit: (tunnel: Tunnel) => void;
   onDelete: (tunnel: Tunnel) => void;
+  /** Só chega em túnel próprio de plano compartilhável — ver `podeCompartilhar`. */
+  onShare?: (tunnel: Tunnel) => void;
 };
 
 export default function TunnelListItem({
@@ -24,9 +26,23 @@ export default function TunnelListItem({
   onPress,
   onEdit,
   onDelete,
+  onShare,
 }: Props) {
   const firstPeer = tunnel.peers?.[0];
   const ativo = isActive ?? !!tunnel.active;
+
+  const origem = tunnel.origin;
+  const emprestado = !!origem?.shared;
+
+  /*
+   * O botão de compartilhar aparece só onde faz sentido.
+   *
+   * Num túnel emprestado seria mentira: quem administra as vagas é o titular, e
+   * o servidor recusa (404 — a conexão não é do token). Num plano de uma pessoa
+   * também não há o que dividir. Esconder é melhor que mostrar e falhar depois
+   * da pessoa já ter escolhido o prazo.
+   */
+  const podeCompartilhar = !!onShare && !emprestado && !!origem?.slots?.can_share;
 
   return (
     <Pressable
@@ -48,11 +64,25 @@ export default function TunnelListItem({
               <Text style={styles.seloTexto}>ATIVO</Text>
             </View>
           ) : null}
+          {emprestado ? (
+            <View style={styles.seloEmprestado}>
+              <Text style={styles.seloEmprestadoTexto}>CONVIDADO</Text>
+            </View>
+          ) : null}
         </View>
 
-        <Text style={styles.detail} numberOfLines={1}>
-          {tunnel.interface.addresses || 'Sem endereço'}
-        </Text>
+        {/* Em túnel emprestado, o endereço interno não diz nada a quem foi
+            convidado; o que importa é de quem é o túnel e até quando vale. */}
+        {emprestado ? (
+          <Text style={styles.detailDestaque} numberOfLines={1}>
+            {origem?.ownerName ? `Compartilhado por ${origem.ownerName}` : 'Acesso compartilhado'}
+            {origem?.expiresText ? ` · ${origem.expiresText}` : ''}
+          </Text>
+        ) : (
+          <Text style={styles.detail} numberOfLines={1}>
+            {tunnel.interface.addresses || 'Sem endereço'}
+          </Text>
+        )}
         <Text style={styles.detail} numberOfLines={1}>
           {firstPeer
             ? `${firstPeer.endpoint || 'Sem endpoint'}${
@@ -60,6 +90,17 @@ export default function TunnelListItem({
               }`
             : 'Sem pares configurados'}
         </Text>
+
+        {podeCompartilhar && origem?.slots ? (
+          <View style={styles.ocupacao}>
+            <UsersThree size={13} color={colors.textMuted} weight="duotone" />
+            <Text style={styles.ocupacaoTexto}>
+              {origem.slots.guests_active > 0
+                ? `${origem.slots.guests_active + 1} de ${origem.slots.total} pessoas`
+                : `${origem.slots.free} vagas para compartilhar`}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.actions}>
@@ -71,6 +112,17 @@ export default function TunnelListItem({
           thumbColor={ativo ? colors.greenInk : '#F4F4F5'}
         />
         <View style={styles.icones}>
+          {podeCompartilhar ? (
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => onShare!(tunnel)}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Compartilhar este túnel"
+            >
+              <ShareNetwork size={18} color={colors.greenInk} weight="bold" />
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity style={styles.iconBtn} onPress={() => onEdit(tunnel)} hitSlop={6}>
             <PencilSimple size={17} color={colors.textMuted} />
           </TouchableOpacity>
@@ -124,6 +176,20 @@ const styles = StyleSheet.create({
   pontoVivo: { width: 5, height: 5, borderRadius: 3, backgroundColor: brand.green },
   seloTexto: { fontSize: 9, fontWeight: '800', color: colors.greenInk, letterSpacing: 0.8 },
   detail: { ...type.tiny, color: colors.textMuted, marginTop: 3, fontWeight: '500' },
+  detailDestaque: { ...type.tiny, color: colors.greenInk, marginTop: 3, fontWeight: '700' },
+
+  seloEmprestado: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    backgroundColor: colors.greenSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.green,
+  },
+  seloEmprestadoTexto: { fontSize: 9, fontWeight: '800', color: colors.greenInk, letterSpacing: 0.8 },
+
+  ocupacao: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
+  ocupacaoTexto: { ...type.tiny, color: colors.textMuted, fontWeight: '600' },
   actions: { alignItems: 'flex-end', gap: spacing.sm },
   icones: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   iconBtn: { padding: spacing.xs },

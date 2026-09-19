@@ -2,7 +2,7 @@ import { fetchConnections, type ApiConnection } from '../api/client';
 import { parseWireGuardConf, toWireGuardConf } from '../utils/wgConfig';
 import { loadTunnels, saveTunnels } from '../storage/tunnels';
 import * as WireGuard from '../native/WireGuard';
-import type { Tunnel } from '../models/Tunnel';
+import type { Tunnel, TunnelOrigin } from '../models/Tunnel';
 
 /**
  * Traz para o aparelho as conexões da conta.
@@ -36,11 +36,48 @@ export type SyncResult = {
 };
 
 function nameFor(conn: ApiConnection): string {
+  // Túnel emprestado: o nome útil é o de quem emprestou. O nome do plano seria
+  // o do titular, e na lista do convidado ele apareceria como se fosse dele.
+  if (conn.shared && conn.owner_name) return `Túnel de ${conn.owner_name}`;
+
   // O `name` da conexão é o nome do cliente — repetido em todas as conexões
   // dele. Com duas ou mais, a lista fica com itens idênticos e nenhum jeito de
   // saber qual é qual; o plano diferencia.
   const plano = conn.plan?.name;
   return plano ? `${plano} (#${conn.id})` : `Conexão #${conn.id}`;
+}
+
+/** Metadados da conta que a lista usa, mas o WireGuard não conhece. */
+function originFor(conn: ApiConnection): TunnelOrigin {
+  if (conn.shared) {
+    return {
+      connectionId: conn.id,
+      shared: true,
+      ownerName: conn.owner_name,
+      shareId: conn.share_id,
+      expiresText: conn.expires_text,
+      slots: null,
+    };
+  }
+  return {
+    connectionId: conn.id,
+    shared: false,
+    slots: conn.slots
+      ? {
+          total: conn.slots.total,
+          guests_active: conn.slots.guests_active,
+          free: conn.slots.free,
+          can_share: !!conn.slots.can_share,
+        }
+      : null,
+  };
+}
+
+/** Caminho inverso de `tunnelIdFor`: da lista local de volta para a conexão. */
+export function connectionIdOf(tunnelId: string): number | null {
+  if (!isSyncedTunnel(tunnelId)) return null;
+  const n = Number(tunnelId.slice('tunnelx_conn_'.length));
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 export async function syncConnections(): Promise<SyncResult> {
@@ -72,6 +109,7 @@ export async function syncConnections(): Promise<SyncResult> {
         // estava ativo não pode aparecer como inativo só porque sincronizou.
         active: anterior?.active ?? false,
         stats: anterior?.stats ?? { rxMiB: 0, txMiB: 0 },
+        origin: originFor(conn),
       };
 
       porId.set(id, tunnel);

@@ -93,6 +93,29 @@ export type ApiConnection = {
   config: string | null;
   qrcode_base64: string | null;
   updatedAt: string;
+
+  /*
+   * De onde vem o direito de usar este túnel.
+   *
+   * `owned`  = é do próprio cliente, pago pela assinatura dele.
+   * `shared` = alguém compartilhou com ele (acesso provisionado).
+   *
+   * A configuração é a MESMA nos dois casos — é o mesmo túnel. O que muda é o
+   * que a tela oferece: o titular administra as vagas, o convidado só usa e
+   * pode devolver a vaga.
+   */
+  owned?: boolean;
+  shared?: boolean;
+
+  /** Só em túnel próprio: ocupação das vagas do plano (ShareSlots, abaixo). */
+  slots?: ShareSlots | null;
+
+  /** Só em túnel emprestado. */
+  share_id?: number;
+  owner_name?: string;
+  duration_label?: string | null;
+  expires_at?: string | null;
+  expires_text?: string;
 };
 
 export type LoginResult = {
@@ -168,13 +191,24 @@ export type ApiPlan = {
 };
 
 /** Veredito pronto, vindo do servidor. */
-export type AccessState = 'NONE' | 'PENDING' | 'ACTIVE' | 'GRACE' | 'BLOCKED' | 'CANCELED';
+/*
+ * GUEST: entra por convite, não por assinatura própria.
+ *
+ * O app NÃO deduz isso — quem decide é o servidor, no mesmo lugar que decide o
+ * resto. Sem este estado, o convidado cairia na tela de planos e seria mandado
+ * pagar por um acesso que o titular já pagou.
+ */
+export type AccessState =
+  | 'NONE' | 'PENDING' | 'ACTIVE' | 'GRACE' | 'BLOCKED' | 'CANCELED' | 'GUEST';
 
 export type Access = {
   allowed: boolean;
   state: AccessState;
   daysLeft: number | null;
   message: string | null;
+  /** Veio de convite, não de assinatura. */
+  asGuest?: boolean;
+  shareCount?: number;
 };
 
 export type ApiSubscription = {
@@ -333,4 +367,124 @@ export async function register(dados: RegisterInput): Promise<SessionClient> {
 /** Avisa que o CPF ja tem conta ENQUANTO se digita, em vez de so no envio. */
 export async function checkCpf(cpf: string): Promise<{ valid: boolean; taken: boolean }> {
   return request(`/app/register/check-cpf?cpf=${encodeURIComponent(cpf)}`, { auth: false });
+}
+
+/* =============================================================================
+   Acesso provisionado — o titular empresta o túnel para a família
+
+   Um plano de 8 não são 8 túneis: é UM túnel que até 8 pessoas usam, com a
+   mesma configuração. O titular gera um convite, escolhe por quanto tempo vale
+   e mostra o QR; quem escaneia entra no mesmo túnel e ocupa uma vaga.
+
+   O QR carrega um TOKEN, nunca o .conf. É o que torna o gerenciamento possível:
+   um QR com a configuração dentro daria acesso permanente a quem fotografasse a
+   tela — sem prazo, sem contagem de vaga e sem como revogar, porque a chave
+   privada já estaria com a pessoa. Com token quem decide é o servidor a cada
+   passo.
+   ========================================================================== */
+
+/** Prefixo do QR. Identifica o convite e evita confundir com o QR do .conf. */
+export const SHARE_QR_PREFIX = 'tunnelx://share/';
+
+export type ShareDuration = { key: string; label: string; minutes: number | null };
+
+export type ShareSlots = {
+  total: number;
+  owner: number;
+  guests_active: number;
+  invites_pending?: number;
+  free: number;
+  can_share?: boolean;
+};
+
+export type ApiShare = {
+  id: number;
+  status: 'PENDING' | 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+  guest_label: string | null;
+  duration_key: string | null;
+  duration_label: string | null;
+  expires_at: string | null;
+  expires_text: string;
+  accepted_at: string | null;
+  invite_expires_at: string;
+  qr_payload: string | null;
+  guest: { id: number; name: string } | null;
+  createdAt: string;
+};
+
+export type ShareOverview = {
+  connection: { id: number; name: string };
+  slots: ShareSlots;
+  /** As durações vêm do servidor: um app antigo não consegue pedir uma inválida. */
+  durations: ShareDuration[];
+  invite_ttl_minutes: number;
+  shares: ApiShare[];
+};
+
+export async function fetchShareOverview(connectionId: number): Promise<ShareOverview> {
+  return request<ShareOverview>(`/app/connections/${connectionId}/shares`);
+}
+
+export async function createShare(
+  connectionId: number,
+  duration: string,
+  guestLabel?: string
+): Promise<{ share: ApiShare; qr_payload: string; invite_expires_at: string; free_slots_after: number }> {
+  return request(`/app/connections/${connectionId}/shares`, {
+    method: 'POST',
+    body: { duration, guest_label: guestLabel || undefined },
+  });
+}
+
+export async function revokeShare(shareId: number): Promise<{ message: string }> {
+  return request(`/app/shares/${shareId}`, { method: 'DELETE' });
+}
+
+export type SharePreview = {
+  owner_name: string;
+  connection_name: string;
+  duration_label: string;
+  guest_label: string | null;
+  invite_expires_at: string;
+};
+
+/**
+ * O que o convite revela ANTES de entrar na conta.
+ *
+ * Sem autenticação de propósito: quem escaneou pode ainda não ter conta, e
+ * mandar a pessoa se cadastrar sem saber de quem é o convite nem por quanto
+ * tempo vale é pedir cadastro a troco de nada.
+ */
+export async function previewShare(token: string): Promise<SharePreview> {
+  return request<SharePreview>(`/app/share/${encodeURIComponent(token)}`, { auth: false });
+}
+
+/** Aceita o convite. Exige conta, mas NÃO exige assinatura: o convidado não paga. */
+export async function acceptShare(token: string): Promise<{
+  message: string;
+  share: { id: number; connection_name: string; owner_name: string; expires_at: string | null; expires_text: string };
+}> {
+  return request(`/app/share/${encodeURIComponent(token)}/accept`, { method: 'POST' });
+}
+
+/** O convidado devolve a vaga por conta própria. */
+export async function leaveShare(shareId: number): Promise<{ message: string }> {
+  return request(`/app/share/${shareId}/leave`, { method: 'DELETE' });
+}
+
+/**
+ * Extrai o token do que a câmera leu.
+ *
+ * Aceita o token cru além da URL: um QR reimpresso ou copiado à mão pode chegar
+ * sem o prefixo, e recusar isso seria falhar por formatação.
+ */
+export function parseShareQr(valor: string): string | null {
+  const texto = String(valor || '').trim();
+  if (texto.startsWith(SHARE_QR_PREFIX)) {
+    const token = texto.slice(SHARE_QR_PREFIX.length).trim();
+    return token.length >= 16 ? token : null;
+  }
+  // 64 hexadecimais é o formato que o servidor gera.
+  if (/^[0-9a-f]{64}$/i.test(texto)) return texto;
+  return null;
 }
