@@ -141,3 +141,34 @@ export async function getStats(id: string): Promise<{ rxBytes: number; txBytes: 
     return null;
   }
 }
+
+/* =============================================================================
+   Vigia de sessão do lado nativo
+
+   O serviço que mantém o túnel de pé continua rodando depois que o app sai do
+   recents — e é justamente aí que o JavaScript para. Sem estas credenciais
+   guardadas nativamente, uma sessão derrubada em outro aparelho deixaria este
+   telefone roteando tráfego por um túnel que ninguém mais autoriza, até alguém
+   reabrir o aplicativo.
+
+   Ver android/.../SessionGuard.kt e TunnelKeepAliveService.
+   ========================================================================== */
+
+/** Guarda servidor e token para o serviço poder conferir sozinho. */
+export async function setSessionGuard(baseUrl: string, token: string): Promise<void> {
+  try {
+    await (NativeWireGuard as any)?.setSessionGuard?.(baseUrl, token);
+  } catch (e) {
+    // Reforço de segurança: falhar aqui não pode derrubar o login. O vigia em
+    // JavaScript continua cobrindo o app em primeiro plano.
+    console.warn('[WireGuard] setSessionGuard falhou', e);
+  }
+}
+
+export async function clearSessionGuard(): Promise<void> {
+  try {
+    await (NativeWireGuard as any)?.clearSessionGuard?.();
+  } catch (e) {
+    console.warn('[WireGuard] clearSessionGuard falhou', e);
+  }
+}

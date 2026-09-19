@@ -57,6 +57,29 @@ export async function saveSession(
     [KEY_PENDING_PASSWORD, mustChangePassword ? '1' : '0'],
     [KEY_SESSION, sessionId || ''],
   ]);
+
+  await armarVigiaNativo(token);
+}
+
+/**
+ * Entrega o token ao lado nativo, que confere a sessão sozinho.
+ *
+ * O serviço que segura o túnel continua rodando depois que o app sai do
+ * recents — e é exatamente aí que o JavaScript para. Sem isto, uma sessão
+ * derrubada em outro aparelho deixaria este telefone tunelando até alguém
+ * reabrir o aplicativo. Ver android/.../SessionGuard.kt.
+ *
+ * Import tardio pelo mesmo motivo do vpnGuard: este arquivo é de armazenamento
+ * e não deve carregar a ponte nativa só para gravar chaves.
+ */
+async function armarVigiaNativo(token: string): Promise<void> {
+  try {
+    const { setSessionGuard } = await import('../services/vpnGuard');
+    await setSessionGuard(token);
+  } catch (e) {
+    // Reforço; o vigia em JavaScript cobre o app em primeiro plano.
+    console.warn('[session] não foi possível armar o vigia nativo', e);
+  }
 }
 
 export async function loadSessionId(): Promise<string | null> {
@@ -84,7 +107,12 @@ export async function completePasswordChange(
   novoToken?: string | null,
   sessionId?: string | null
 ): Promise<void> {
-  if (novoToken) await AsyncStorage.setItem(KEY_TOKEN, novoToken);
+  if (novoToken) {
+    await AsyncStorage.setItem(KEY_TOKEN, novoToken);
+    // Token novo, sessão nova: o vigia nativo precisa acompanhar, senão
+    // continuaria checando com o token anterior — que o servidor já recusa.
+    await armarVigiaNativo(novoToken);
+  }
   if (sessionId) await AsyncStorage.setItem(KEY_SESSION, sessionId);
   await AsyncStorage.setItem(KEY_PENDING_PASSWORD, '0');
 }
@@ -117,8 +145,12 @@ export async function clearSession(): Promise<void> {
    * Vem ANTES da limpeza: derrubar o túnel precisa do estado que o nativo
    * conhece, e uma falha de storage no meio não pode deixar a VPN de pé.
    */
-  const { derrubarTunelAtivo } = await import('../services/vpnGuard');
+  const { derrubarTunelAtivo, limparVigiaNativo } = await import('../services/vpnGuard');
   await derrubarTunelAtivo('sessao encerrada');
+
+  // O token guardado nativamente também morre aqui: deixá-lo para trás faria o
+  // serviço seguir perguntando ao servidor com uma credencial já descartada.
+  await limparVigiaNativo();
 
   await AsyncStorage.multiRemove([KEY_TOKEN, KEY_CLIENT, KEY_PENDING_PASSWORD, KEY_SESSION]);
 }

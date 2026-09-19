@@ -39,3 +39,24 @@ export async function derrubarTunelAtivo(motivo: string): Promise<void> {
     // Storage indisponível: o reconcile da Home corrige na próxima abertura.
   }
 }
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Arma o vigia nativo com o token desta sessão.
+ *
+ * Mora aqui, junto do corte da VPN, porque é a outra metade do mesmo problema:
+ * um garante que a sessão encerrada derruba o túnel enquanto o app existe; o
+ * outro garante o mesmo quando ele não existe mais.
+ *
+ * A URL do servidor vem de `api/client` para não haver duas verdades — se o
+ * endereço mudar, o lado nativo acompanha sem ninguém lembrar de atualizar.
+ */
+export async function setSessionGuard(token: string): Promise<void> {
+  const { BASE_URL } = await import('../api/client');
+  await WireGuard.setSessionGuard(BASE_URL, token);
+}
+
+export async function limparVigiaNativo(): Promise<void> {
+  await WireGuard.clearSessionGuard();
+}

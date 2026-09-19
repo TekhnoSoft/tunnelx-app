@@ -280,6 +280,21 @@ function App() {
       if (token && salvo) {
         setClient(salvo);
         setTrocaPendente(trocar);
+
+        /*
+         * Rearma o vigia nativo na abertura.
+         *
+         * `saveSession` arma no login, mas quem já estava logado não passa
+         * mais por lá — e a versão anterior do aplicativo nem tinha isto. Sem
+         * este rearme, justamente a base existente ficaria sem proteção quando
+         * o app sai do recents com o túnel de pé.
+         */
+        try {
+          const { setSessionGuard } = await import('./src/services/vpnGuard');
+          await setSessionGuard(token);
+        } catch (e) {
+          console.warn('[App] não foi possível armar o vigia nativo', e);
+        }
       }
       setTimeout(() => setReady(true), 3000);
     })();

@@ -209,6 +209,36 @@ class WireGuardModule(private val reactContext: ReactApplicationContext) :
 
   // status/isConnected passam a consultar o BACKEND, nao flags estaticas que o app
   // escrevia manualmente e que ficavam mentindo quando o teardown falhava.
+  /**
+   * Entrega ao lado nativo o que ele precisa para conferir a sessao sozinho.
+   *
+   * O keep-alive mantem o tunel de pe depois que o app sai do recents, e nesse
+   * estado nao ha JavaScript para vigiar nada. Sem estas credenciais, uma sessao
+   * derrubada em outro aparelho deixaria este telefone tunelando ate alguem
+   * reabrir o app. Ver SessionGuard.
+   */
+  @ReactMethod
+  fun setSessionGuard(baseUrl: String?, token: String?, promise: Promise) {
+    try {
+      SessionGuard.configurar(reactContext, baseUrl, token)
+      promise.resolve(null)
+    } catch (t: Throwable) {
+      Log.e(TAG, "setSessionGuard falhou", t)
+      // Nao rejeita: isto e reforco de seguranca, nao deve quebrar o login.
+      promise.resolve(null)
+    }
+  }
+
+  @ReactMethod
+  fun clearSessionGuard(promise: Promise) {
+    try {
+      SessionGuard.limpar(reactContext)
+    } catch (t: Throwable) {
+      Log.w(TAG, "clearSessionGuard falhou", t)
+    }
+    promise.resolve(null)
+  }
+
   @ReactMethod
   fun status(id: String, promise: Promise) {
     val up = VpnManager.isUp() && VpnManager.activeTunnelId() == id

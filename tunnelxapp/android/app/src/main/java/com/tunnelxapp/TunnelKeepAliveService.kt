@@ -36,9 +36,37 @@ class TunnelKeepAliveService : android.app.Service() {
     private const val CHANNEL_ID = "tunnelx_vpn_channel"
     private const val NOTIFICATION_ID = 1001
 
+    /** Id separado: o aviso sobrevive ao servico que segurava a notificacao fixa. */
+    private const val NOTIFICATION_ID_AVISO = 1002
+
     const val ACTION_START = "com.tunnelxapp.action.KEEPALIVE_START"
     const val ACTION_STOP_TUNNEL = "com.tunnelxapp.action.KEEPALIVE_STOP_TUNNEL"
     private const val EXTRA_TUNNEL_NAME = "extra_tunnel_name"
+
+    /**
+     * De quanto em quanto tempo perguntar ao servidor se o tunel ainda vale.
+     *
+     * Um minuto: perto o bastante para quem foi desconectado parar de usar a
+     * rede quase na hora, e uma requisicao de algumas centenas de bytes por
+     * minuto enquanto a VPN esta ligada nao pesa em bateria nem em dados.
+     *
+     * O vigia em JavaScript usa 30s, mas so com a tela aberta. Este aqui cobre
+     * justamente o resto: app minimizado ou fora do recents.
+     */
+    private const val INTERVALO_CHECAGEM_MS = 60_000L
+
+    /** Espera antes da PRIMEIRA checagem, para o tunel terminar de subir. */
+    private const val ESPERA_INICIAL_MS = 20_000L
+
+    /**
+     * Prefixo dos tuneis que vieram da CONTA (ver models/Tunnel.ts).
+     *
+     * O vigia so manda derrubar o que a conta paga. Um .conf importado a mao
+     * pelo usuario - por arquivo ou pelo QR de configuracao - nao pertence a
+     * assinatura nenhuma: o servidor nunca soube dele, e uma assinatura vencida
+     * ou uma sessao derrubada nao tem autoridade para desliga-lo.
+     */
+    private const val PREFIXO_DA_CONTA = "tunnelx_conn_"
 
     /**
      * Sobe o servico. Chamado com o tunel ja UP e a partir de uma acao do usuario
@@ -73,6 +101,136 @@ class TunnelKeepAliveService : android.app.Service() {
     }
   }
 
+  /**
+   * Vigia enquanto o servico existe.
+   *
+   * Thread propria, e nao um Handler no main looper: a verificacao e uma
+   * chamada de rede bloqueante, e a thread principal do processo continua
+   * servindo o React quando o app volta para a frente.
+   */
+  @Volatile private var vigiando = false
+  private var vigia: Thread? = null
+
+  private fun iniciarVigia() {
+    if (vigiando) return
+    vigiando = true
+
+    vigia = Thread({
+      try {
+        Thread.sleep(ESPERA_INICIAL_MS)
+      } catch (_: InterruptedException) {
+        return@Thread
+      }
+
+      while (vigiando) {
+        // O tunel pode ter caido por outro caminho enquanto dormiamos.
+        if (!VpnManager.isUp()) {
+          Log.i(TAG, "vigia: tunel ja esta fora, encerrando")
+          return@Thread
+        }
+
+        // Tunel que nao veio da conta nao responde a ela. Nada a vigiar.
+        val ativo = VpnManager.activeTunnelId()
+        if (ativo == null || !ativo.startsWith(PREFIXO_DA_CONTA)) {
+          Log.i(TAG, "vigia: tunel ativo nao pertence a conta (id=$ativo), encerrando")
+          return@Thread
+        }
+
+        when (SessionGuard.verificar(applicationContext)) {
+          SessionGuard.Resultado.NEGADO -> {
+            Log.w(TAG, "vigia: servidor negou o acesso, derrubando o tunel")
+            derrubarPorFaltaDeAcesso()
+            return@Thread
+          }
+          // AUTORIZADO e DESCONHECIDO seguem iguais: so a negacao explicita
+          // desliga. Ver o comentario em SessionGuard.Resultado.
+          else -> Unit
+        }
+
+        try {
+          Thread.sleep(INTERVALO_CHECAGEM_MS)
+        } catch (_: InterruptedException) {
+          return@Thread
+        }
+      }
+    }, "tunnelx-session-guard").apply {
+      isDaemon = true
+      start()
+    }
+  }
+
+  private fun pararVigia() {
+    vigiando = false
+    vigia?.interrupt()
+    vigia = null
+  }
+
+  /**
+   * Corta o tunel porque o servidor deixou de autorizar este aparelho.
+   *
+   * Troca a notificacao ANTES do teardown: o teardown leva este servico junto
+   * (stopBlocking chama TunnelKeepAliveService.stop), e sem o aviso o usuario
+   * veria a VPN cair sem explicacao nenhuma - parecendo defeito, quando foi
+   * exatamente o comportamento pedido.
+   */
+  private fun derrubarPorFaltaDeAcesso() {
+    // Recheca na hora do corte: entre a resposta do servidor e este ponto o
+    // usuario pode ter trocado para um tunel proprio, que nao deve cair junto.
+    val ativo = VpnManager.activeTunnelId()
+    if (ativo == null || !ativo.startsWith(PREFIXO_DA_CONTA)) {
+      Log.i(TAG, "derrubarPorFaltaDeAcesso: tunel ativo mudou (id=$ativo), nao derruba")
+      return
+    }
+
+    try {
+      val nm = getSystemService(NotificationManager::class.java)
+      nm?.notify(NOTIFICATION_ID_AVISO, buildNotificacaoDesconectado())
+    } catch (t: Throwable) {
+      Log.w(TAG, "nao foi possivel avisar sobre a desconexao", t)
+    }
+
+    // A sessao tambem deixa de valer neste aparelho: manter o token guardado
+    // faria a proxima conexao tentar de novo com uma credencial ja recusada.
+    try {
+      SessionGuard.limpar(applicationContext)
+    } catch (t: Throwable) {
+      Log.w(TAG, "nao foi possivel limpar as credenciais", t)
+    }
+
+    val app = applicationContext
+    VpnManager.submit {
+      try {
+        VpnManager.stopBlocking(app)
+      } catch (t: Throwable) {
+        Log.e(TAG, "falha ao derrubar o tunel apos negacao do servidor", t)
+      }
+    }
+  }
+
+  private fun buildNotificacaoDesconectado(): Notification {
+    ensureChannel()
+    val abrirApp = PendingIntent.getActivity(
+      this,
+      2,
+      Intent(this, MainActivity::class.java),
+      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    )
+    return NotificationCompat.Builder(this, CHANNEL_ID)
+      .setSmallIcon(R.mipmap.ic_launcher)
+      .setContentTitle("VPN desconectada")
+      .setContentText("Sua conta foi aberta em outro aparelho ou o acesso terminou.")
+      .setStyle(
+        NotificationCompat.BigTextStyle().bigText(
+          "A VPN foi desligada porque este aparelho não está mais autorizado. " +
+            "Abra o TunnelX e entre novamente para reconectar."
+        )
+      )
+      .setContentIntent(abrirApp)
+      .setAutoCancel(true)
+      .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+      .build()
+  }
+
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -97,6 +255,9 @@ class TunnelKeepAliveService : android.app.Service() {
         try {
           startForeground(NOTIFICATION_ID, buildNotification(nome))
           Log.i(TAG, "onStartCommand: foreground ativo, tunel=$nome")
+          // A partir daqui o tunel sobrevive ao fechamento do app — e por isso
+          // mesmo passa a precisar de alguem conferindo se ainda e autorizado.
+          iniciarVigia()
         } catch (t: Throwable) {
           // Sem a notificacao nao ha protecao a oferecer - insistir deixaria um
           // servico invisivel de pe sem cumprir funcao nenhuma.
@@ -169,6 +330,7 @@ class TunnelKeepAliveService : android.app.Service() {
 
   override fun onDestroy() {
     Log.i(TAG, "onDestroy: keep-alive encerrado")
+    pararVigia()
     super.onDestroy()
   }
 }
