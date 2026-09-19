@@ -347,7 +347,13 @@ function SheetOption({
   onPress: () => void;
 }) {
   return (
-    <Pressable style={({ pressed }) => [styles.option, pressed && styles.optionPressed]} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
+      onPress={onPress}
+      // Ripple nativo: confirma o toque no instante em que ele acontece, sem
+      // esperar a tela seguinte montar.
+      android_ripple={{ color: 'rgba(19,86,193,0.12)' }}
+    >
       <View style={styles.optionIcon}>{icon}</View>
       <View style={{ flex: 1 }}>
         <Text style={styles.optionText}>{title}</Text>
