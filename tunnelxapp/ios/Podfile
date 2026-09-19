@@ -23,12 +23,10 @@ target 'tunnelxapp' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  # NOTE: WireGuardKit/WireGuardKitGo are intentionally NOT declared here.
-  # The app target only talks to the system NetworkExtension framework
-  # (NETunnelProviderManager), which needs no third-party pod. WireGuardKitGo
-  # additionally requires a Go toolchain to build. When the Packet Tunnel
-  # Provider extension target is added, declare WireGuardKit on *that* target
-  # only -- never on the app target.
+  # NOTE: WireGuardKit NAO entra aqui. O app so fala com o NetworkExtension do
+  # sistema (NETunnelProviderManager); quem implementa WireGuard e a extensao,
+  # integrada ao target 'TunnelXVPN' via Swift Package Manager -- o repositorio
+  # wireguard-apple nao publica podspec, so Package.swift.
 
   post_install do |installer|
     react_native_post_install(
