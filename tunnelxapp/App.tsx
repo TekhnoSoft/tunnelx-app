@@ -96,6 +96,26 @@ function App() {
       const r = await fetchSubscription();
       setAcesso(r.access);
       setPixPendente(r.pending_pix ?? null);
+
+      /*
+       * Liberado? Traz as conexões AGORA.
+       *
+       * Antes o sync só acontecia depois de trocar a senha ou de concluir um
+       * pagamento na tela de checkout. Quem teve a assinatura ativada em outro
+       * momento — pelo webhook com o app fechado, ou pelo suporte — abria o app
+       * e via a lista vazia: os túneis existiam no servidor e nada os buscava.
+       */
+      if (r.access.allowed) {
+        try {
+          const { syncConnections } = await import('./src/services/sync');
+          await syncConnections();
+          setInitialTunnels(await loadTunnels());
+        } catch (e) {
+          // Sincronizar é o que enche a lista, não o que dá acesso: falhar aqui
+          // não pode impedir o app de abrir.
+          console.warn('[App] falha ao sincronizar conexões', e);
+        }
+      }
     } catch (e) {
       // Sem resposta do servidor nao da para afirmar que esta liberado. Fica
       // nulo e a tela de planos assume - negar e o lado seguro do erro.
