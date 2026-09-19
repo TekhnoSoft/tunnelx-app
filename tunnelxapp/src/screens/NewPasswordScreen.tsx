@@ -138,7 +138,8 @@ export default function NewPasswordScreen({ senhaAtual, onDone, onSessionLost }:
                 placeholder="A senha recebida no cadastro"
                 secret
                 mono
-                autoCapitalize="characters"
+                keyboardType="number-pad"
+                maxLength={8}
                 autoCorrect={false}
               />
             ) : null}

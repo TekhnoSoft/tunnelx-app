@@ -120,12 +120,13 @@ export default function FirstAccessScreen({ onNeedsNewPassword, onSigned, onCanc
               label="Senha provisória"
               value={senha}
               onChangeText={setSenha}
-              placeholder="Ex.: ABCD-2345"
+              placeholder="Ex.: 69512210"
               secret
               mono
-              // A senha gerada é toda em maiúsculas e sem acento; o teclado já
-              // abre no formato certo para não virar erro de digitação.
-              autoCapitalize="characters"
+              // A senha gerada é só de dígitos: o teclado numérico abre direto,
+              // sem o usuário caçar os números no alfabético.
+              keyboardType="number-pad"
+              maxLength={8}
               autoCorrect={false}
               returnKeyType="go"
               onSubmitEditing={continuar}
