@@ -128,13 +128,29 @@ export default function HomeScreen({
     return parar;
   }, [onAcessoPerdido]);
 
+  /*
+   * A semente chega depois da montagem.
+   *
+   * `useState(initialTunnels)` só aproveita o valor no PRIMEIRO render. O sync
+   * do boot (App.tsx) roda em paralelo e só então chama `setInitialTunnels`:
+   * se a Home já tiver montado, esse resultado nunca entrava no estado e a
+   * lista ficava presa no array vazio inicial.
+   */
+  useEffect(() => {
+    if (initialTunnels.length) setTunnels(initialTunnels);
+  }, [initialTunnels]);
+
   // Recarrega ao focar a Home para refletir inclusões/edições/exclusões
   useFocusEffect(
     useCallback(() => {
       let active = true;
       (async () => {
         const latest = await loadTunnels();
-        if (active) setTunnels(latest);
+        // Só sobrescreve com vazio se o disco realmente estiver vazio E não
+        // houver nada em memória: senão um foco disparado no meio do sync
+        // limparia a lista que acabou de chegar.
+        if (!active) return;
+        setTunnels(prev => (latest.length === 0 && prev.length > 0 ? prev : latest));
       })();
       return () => {
         active = false;
@@ -162,11 +178,25 @@ export default function HomeScreen({
         const st = await WireGuard.getVpnState();
         setConnected(st.connected);
         setActiveId(st.tunnelId);
-        setTunnels(prev => {
-          const fixed = prev.map(t => ({ ...t, active: st.connected && t.id === st.tunnelId }));
-          saveTunnels(fixed).catch(() => {});
-          return fixed;
-        });
+        /*
+         * NÃO persistir aqui.
+         *
+         * Este bloco gravava `saveTunnels(prev)` a cada 3s — e também no
+         * primeiro disparo, quando `prev` ainda é a semente `initialTunnels`.
+         * Se o reconcile vencesse a corrida contra o `loadTunnels()` do
+         * useFocusEffect, ele escrevia `[]` por cima da lista que o sync tinha
+         * acabado de salvar; o foco então relia vazio e o timer regravava vazio
+         * a cada 3s, tornando a perda permanente.
+         *
+         * No iOS a corrida é fácil de perder: `getVpnState()` cai em
+         * `loadAllFromPreferences`, que retorna quase imediatamente quando
+         * nenhuma VPN está provisionada.
+         *
+         * `active` é estado de execução: o próprio reconcile o recalcula a cada
+         * ciclo a partir do nativo, então não há nada que precise sobreviver ao
+         * fechamento do app.
+         */
+        setTunnels(prev => prev.map(t => ({ ...t, active: st.connected && t.id === st.tunnelId })));
       } catch {}
     };
 
