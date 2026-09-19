@@ -85,6 +85,11 @@ export default function CheckoutScreen({ plano, onVoltar, onAtivado }: Props) {
    * liberaria acesso para cartão que ainda vai ser recusado.
    */
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Quantas vezes ja perguntamos. A espera precisa de fim: sem isso a tela gira
+  // indefinidamente consumindo bateria, e o usuario nao tem saida nem pista do
+  // que fazer quando algo deu errado do outro lado.
+  const tentativas = useRef(0);
+  const [demorou, setDemorou] = useState(false);
 
   const pararDeChecar = useCallback(() => {
     if (timer.current) {
@@ -97,7 +102,17 @@ export default function CheckoutScreen({ plano, onVoltar, onAtivado }: Props) {
 
   const comecarAChecar = useCallback(() => {
     pararDeChecar();
+    tentativas.current = 0;
+    setDemorou(false);
     timer.current = setInterval(async () => {
+      tentativas.current += 1;
+      // 4s x 150 = 10 minutos. Passou disso, para de perguntar e explica —
+      // o pagamento pode ter sido feito e o webhook atrasado, ou nem feito.
+      if (tentativas.current > 150) {
+        pararDeChecar();
+        setDemorou(true);
+        return;
+      }
       try {
         const r = await fetchSubscription();
         if (r.access.allowed) {
@@ -156,12 +171,38 @@ export default function CheckoutScreen({ plano, onVoltar, onAtivado }: Props) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.aguardando}>
-            <ActivityIndicator color={colors.primary} />
+            {demorou ? null : <ActivityIndicator color={colors.primary} />}
             <Text style={styles.aguardandoTitulo}>
-              {resultado.billing_type === 'PIX' ? 'Aguardando o Pix' : 'Confirmando o pagamento'}
+              {demorou
+                ? 'Ainda não confirmamos'
+                : resultado.billing_type === 'PIX'
+                ? 'Aguardando o Pix'
+                : 'Confirmando o pagamento'}
             </Text>
-            <Text style={styles.aguardandoTexto}>{resultado.message}</Text>
+            <Text style={styles.aguardandoTexto}>
+              {demorou
+                ? 'Se você já pagou, a confirmação pode demorar alguns minutos. Toque abaixo para verificar de novo.'
+                : resultado.message}
+            </Text>
+            {demorou ? (
+              <Button
+                label="Verificar agora"
+                variant="ghost"
+                onPress={comecarAChecar}
+                style={styles.botaoVerificar}
+              />
+            ) : null}
           </View>
+
+          {resultado.billing_type === 'PIX' && !resultado.pix?.encoded_image && !resultado.pix?.payload ? (
+            <Card label="Código indisponível">
+              <Text style={styles.pixExplica}>
+                O Pix foi criado, mas o código não chegou. Volte e tente de novo, ou pague com
+                cartão.
+              </Text>
+              <Button label="Voltar" variant="ghost" onPress={onVoltar} />
+            </Card>
+          ) : null}
 
           {resultado.billing_type === 'PIX' && resultado.pix ? (
             <Card label="Pague e autorize">
@@ -435,6 +476,7 @@ const styles = StyleSheet.create({
   },
   pixExplica: { ...type.small, color: colors.textMuted, lineHeight: 20, marginBottom: spacing.lg },
 
+  botaoVerificar: { alignSelf: 'stretch', marginTop: spacing.md },
   rodapeAviso: {
     ...type.tiny,
     color: colors.textDim,
