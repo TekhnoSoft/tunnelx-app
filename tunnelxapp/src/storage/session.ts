@@ -4,9 +4,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  * Sessão do cliente no aplicativo.
  *
  * Fica separada de `storage/tunnels.ts` de propósito: sair da conta apaga a
- * sessão, mas os túneis já importados continuam no aparelho. Quem está no meio
- * de uma viagem com a VPN de pé não pode perder a conexão porque tocou em
- * "sair" — o vínculo com a conta é uma coisa, o túnel instalado é outra.
+ * sessão, mas os túneis já importados continuam NO APARELHO — a lista sobrevive
+ * e volta inteira no próximo login, sem precisar importar de novo.
+ *
+ * A CONEXÃO, porém, não sobrevive. Antes ela continuava de pé para não cortar
+ * quem estivesse no meio de uma viagem, e isso estava errado: sessão encerrada
+ * com VPN ativa significa tráfego roteado por uma credencial que o servidor já
+ * não reconhece. No caso de `SESSION_REPLACED` — outro aparelho assumiu a conta
+ * — o túnel daqui seguiria ligado sem que ninguém conseguisse desligá-lo.
+ * Ver `clearSession()` e `services/vpnGuard.ts`.
  */
 
 const KEY_TOKEN = 'tunnelx:token';
@@ -101,5 +107,18 @@ export async function loadClient(): Promise<SessionClient | null> {
 }
 
 export async function clearSession(): Promise<void> {
+  /*
+   * A VPN cai junto com a sessão.
+   *
+   * Import tardio de propósito: `services/vpnGuard` alcança o módulo nativo, e
+   * puxá-lo no topo faria este arquivo de armazenamento carregar a ponte de VPN
+   * só para apagar chaves.
+   *
+   * Vem ANTES da limpeza: derrubar o túnel precisa do estado que o nativo
+   * conhece, e uma falha de storage no meio não pode deixar a VPN de pé.
+   */
+  const { derrubarTunelAtivo } = await import('../services/vpnGuard');
+  await derrubarTunelAtivo('sessao encerrada');
+
   await AsyncStorage.multiRemove([KEY_TOKEN, KEY_CLIENT, KEY_PENDING_PASSWORD, KEY_SESSION]);
 }
