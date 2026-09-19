@@ -5,7 +5,7 @@
  * @format
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StatusBar, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
@@ -23,6 +23,10 @@ import { loadTunnels } from './src/storage/tunnels';
 import LoginScreen from './src/screens/LoginScreen';
 import FirstAccessScreen from './src/screens/FirstAccessScreen';
 import NewPasswordScreen from './src/screens/NewPasswordScreen';
+import PlansScreen from './src/screens/PlansScreen';
+import CheckoutScreen from './src/screens/CheckoutScreen';
+import BlockedScreen from './src/screens/BlockedScreen';
+import { fetchSubscription, type Access, type ApiPlan } from './src/api/client';
 import {
   loadToken,
   loadClient,
@@ -70,6 +74,38 @@ function App() {
   const [senhaProvisoria, setSenhaProvisoria] = useState<string | undefined>();
   const [noPrimeiroAcesso, setNoPrimeiroAcesso] = useState(false);
 
+  /*
+   * Acesso pago: quem decide e o servidor.
+   *
+   * `access` chega pronto de /app/subscription - inclusive a carencia de 3 dias.
+   * O app nao recalcula nada: duas implementacoes da mesma regra divergem no
+   * primeiro ajuste, e divergir aqui significa liberar o tunel de quem parou de
+   * pagar (ou bloquear quem esta em dia).
+   */
+  const [acesso, setAcesso] = useState<Access | null>(null);
+  const [verificandoAcesso, setVerificandoAcesso] = useState(false);
+  const [planoEscolhido, setPlanoEscolhido] = useState<ApiPlan | null>(null);
+
+  const conferirAcesso = useCallback(async () => {
+    setVerificandoAcesso(true);
+    try {
+      const r = await fetchSubscription();
+      setAcesso(r.access);
+    } catch (e) {
+      // Sem resposta do servidor nao da para afirmar que esta liberado. Fica
+      // nulo e a tela de planos assume - negar e o lado seguro do erro.
+      console.warn('[App] falha ao verificar a assinatura', e);
+      setAcesso(null);
+    } finally {
+      setVerificandoAcesso(false);
+    }
+  }, []);
+
+  // Confere ao entrar e sempre que a sessao muda.
+  useEffect(() => {
+    if (client && !trocaPendente) conferirAcesso();
+  }, [client, trocaPendente, conferirAcesso]);
+
   useEffect(() => {
     (async () => {
       const [tunnels, token, salvo, trocar] = await Promise.all([
@@ -99,6 +135,9 @@ function App() {
   const concluirTroca = async () => {
     setSenhaProvisoria(undefined);
     setTrocaPendente(false);
+    // Primeiro acesso concluído: agora o portão da assinatura decide se a
+    // próxima tela é a Home ou a escolha de plano.
+    await conferirAcesso();
     // Só agora o token é pleno e /app/connections responde: é aqui que os
     // túneis do cliente entram no aparelho pela primeira vez.
     try {
@@ -120,6 +159,8 @@ function App() {
     setTrocaPendente(false);
     setSenhaProvisoria(undefined);
     setNoPrimeiroAcesso(false);
+    setAcesso(null);
+    setPlanoEscolhido(null);
   };
 
   return (
@@ -184,6 +225,59 @@ function App() {
                 />
               )}
             </Stack.Screen>
+          ) : planoEscolhido ? (
+            // Plano escolhido: pagamento. A tela se libera sozinha quando o
+            // servidor confirma — quem confirma é o webhook do Asaas.
+            <Stack.Screen name="Checkout" options={{ headerShown: false }}>
+              {() => (
+                <CheckoutScreen
+                  plano={planoEscolhido}
+                  onVoltar={() => setPlanoEscolhido(null)}
+                  onAtivado={async () => {
+                    setPlanoEscolhido(null);
+                    await conferirAcesso();
+                    try {
+                      const { syncConnections } = await import('./src/services/sync');
+                      await syncConnections();
+                      setInitialTunnels(await loadTunnels());
+                    } catch (e) {
+                      console.warn('[App] falha ao sincronizar após a assinatura', e);
+                    }
+                  }}
+                />
+              )}
+            </Stack.Screen>
+          ) : acesso?.state === 'BLOCKED' ? (
+            // Carência esgotada. Tela sem saída: o servidor já recusa as
+            // conexões neste estado, então "continuar mesmo assim" só levaria a
+            // uma Home vazia com erro.
+            <Stack.Screen name="Blocked" options={{ headerShown: false }}>
+              {() => (
+                <BlockedScreen
+                  access={acesso}
+                  onLiberado={conferirAcesso}
+                  onVerPlanos={() => setAcesso({ ...acesso, state: 'NONE', allowed: false })}
+                  onSair={() => sair(false)}
+                />
+              )}
+            </Stack.Screen>
+          ) : !acesso?.allowed ? (
+            // NONE, CANCELED ou PENDING: ainda não há assinatura valendo, então
+            // a escolha de plano é a única tela. `verificandoAcesso` evita o
+            // pisca-pisca de mostrar planos por um frame antes da resposta.
+            <Stack.Screen name="Plans" options={{ headerShown: false }}>
+              {() =>
+                verificandoAcesso && !acesso ? (
+                  <SplashScreen />
+                ) : (
+                  <PlansScreen
+                    aviso={acesso?.message ?? null}
+                    onEscolher={setPlanoEscolhido}
+                    onSair={() => sair(false)}
+                  />
+                )
+              }
+            </Stack.Screen>
           ) : (
             <>
               <Stack.Screen
@@ -197,7 +291,14 @@ function App() {
                   ),
                 })}
               >
-                {(props) => <HomeScreen {...props} initialTunnels={initialTunnels} />}
+                {(props) => (
+                  <HomeScreen
+                    {...props}
+                    initialTunnels={initialTunnels}
+                    avisoAssinatura={acesso?.state === 'GRACE' ? acesso.message : null}
+                    onResolverPagamento={conferirAcesso}
+                  />
+                )}
               </Stack.Screen>
               <Stack.Screen name="TunnelDetail" component={TunnelDetailScreen} options={{ title: 'TunnelX' }} />
               <Stack.Screen name="TunnelForm" component={TunnelFormScreen} options={{ title: 'TunnelX' }} />

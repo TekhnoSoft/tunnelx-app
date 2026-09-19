@@ -144,3 +144,115 @@ export async function changePassword(current_password: string, new_password: str
 export async function logout(): Promise<void> {
   await clearSession();
 }
+
+/* =============================================================================
+   Assinatura
+
+   O acesso às conexões é pago. Quem decide se libera é o servidor — estas
+   funções só transportam o veredito. O app NÃO recalcula a regra dos 3 dias de
+   carência: duas implementações da mesma regra divergem no primeiro ajuste, e
+   divergir aqui significa mostrar "tudo certo" para quem já está bloqueado.
+   ========================================================================== */
+
+export type PlanBenefit = { tipo: string; descricao: string; valor: number };
+
+export type ApiPlan = {
+  id: number;
+  name: string;
+  description: string | null;
+  cycle: string;
+  price: number;
+  dataLimit: number;
+  total_connections: number;
+  benefits: PlanBenefit[];
+};
+
+/** Veredito pronto, vindo do servidor. */
+export type AccessState = 'NONE' | 'PENDING' | 'ACTIVE' | 'GRACE' | 'BLOCKED' | 'CANCELED';
+
+export type Access = {
+  allowed: boolean;
+  state: AccessState;
+  daysLeft: number | null;
+  message: string | null;
+};
+
+export type ApiSubscription = {
+  id: number;
+  status: string;
+  billing_type: 'CREDIT_CARD' | 'PIX';
+  plan: ApiPlan | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  card_last4: string | null;
+  card_brand: string | null;
+};
+
+export async function fetchPlans(): Promise<ApiPlan[]> {
+  return request<ApiPlan[]>('/app/plans');
+}
+
+export async function fetchSubscription(): Promise<{
+  subscription: ApiSubscription | null;
+  access: Access;
+}> {
+  return request('/app/subscription');
+}
+
+export type CardInput = {
+  holderName: string;
+  number: string;
+  expiryMonth: string;
+  expiryYear: string;
+  ccv: string;
+  holderCpf?: string;
+  addressNumber?: string;
+};
+
+export type SubscribeResult = {
+  subscription_id: number;
+  status: string;
+  billing_type: 'CREDIT_CARD' | 'PIX';
+  message: string;
+  pix?: {
+    authorization_id: string;
+    encoded_image: string | null;
+    payload: string | null;
+    expiration_date: string | null;
+  };
+};
+
+/**
+ * Contrata o plano.
+ *
+ * Volta sempre como PENDING, de propósito: quem confirma o pagamento é o
+ * webhook do Asaas. Tratar a resposta desta chamada como "pago" liberaria
+ * acesso para cartão que ainda vai ser recusado.
+ */
+export async function subscribe(
+  planId: number,
+  billingType: 'CREDIT_CARD' | 'PIX',
+  card?: CardInput
+): Promise<SubscribeResult> {
+  return request<SubscribeResult>('/app/subscription', {
+    method: 'POST',
+    body: { planId, billingType, card },
+  });
+}
+
+export async function cancelSubscription(): Promise<{ message: string; current_period_end: string | null }> {
+  return request('/app/subscription/cancel', { method: 'POST' });
+}
+
+export type PendingPayment = {
+  id: string;
+  value: number;
+  due_date: string;
+  status: string;
+  invoice_url: string | null;
+  pix: { encoded_image: string; payload: string } | null;
+};
+
+export async function fetchPendingPayment(): Promise<PendingPayment> {
+  return request<PendingPayment>('/app/subscription/payment');
+}

@@ -18,7 +18,7 @@ import type { Tunnel } from '../models/Tunnel';
 import { saveTunnels, removeTunnel, loadTunnels } from '../storage/tunnels';
 import * as WireGuard from '../native/WireGuard';
 import { toWireGuardConf } from '../utils/wgConfig';
-import { Plus, FileArrowDown, QrCode, PencilSimple, ShieldWarning } from 'phosphor-react-native';
+import { Plus, FileArrowDown, QrCode, PencilSimple, ShieldWarning, WarningCircle, CaretRight } from 'phosphor-react-native';
 // Importação via arquivo será feita pela tela dedicada (ConfImport)
 import { RESULTS, checkNotifications, requestNotifications } from 'react-native-permissions';
 import { colors, radius, shadow, spacing, type } from '../theme';
@@ -27,9 +27,15 @@ import { useLayout } from '../theme/useLayout';
 type Props = {
   navigation: any;
   initialTunnels?: Tunnel[];
+  /**
+   * Aviso de cobrança em atraso, durante a carência. Vem pronto do servidor
+   * (inclusive quantos dias restam) — o app não recalcula a regra.
+   */
+  avisoAssinatura?: string | null;
+  onResolverPagamento?: () => void;
 };
 
-export default function HomeScreen({ navigation, initialTunnels = [] }: Props) {
+export default function HomeScreen({ navigation, initialTunnels = [], avisoAssinatura, onResolverPagamento }: Props) {
   const [tunnels, setTunnels] = useState<Tunnel[]>(initialTunnels);
   const [showSheet, setShowSheet] = useState(false);
   const [connected, setConnected] = useState<boolean>(false);
@@ -242,6 +248,20 @@ export default function HomeScreen({ navigation, initialTunnels = [] }: Props) {
 
   const cabecalho = (
     <View style={styles.topo}>
+      {/* Faixa de atraso: aparece durante a carência, antes do bloqueio. É a
+          última chance de resolver sem perder o acesso, então fica no topo da
+          Home e não escondida em Definições. */}
+      {avisoAssinatura ? (
+        <Pressable
+          onPress={onResolverPagamento}
+          style={({ pressed }) => [styles.faixaAviso, pressed && { opacity: 0.85 }]}
+        >
+          <WarningCircle size={18} color="#92400E" weight="duotone" />
+          <Text style={styles.faixaAvisoTexto}>{avisoAssinatura}</Text>
+          <CaretRight size={14} color="#92400E" />
+        </Pressable>
+      ) : null}
+
       <ConnectionOrb
         connected={connected}
         busy={transicionando}
@@ -365,6 +385,18 @@ function SheetOption({
 
 const styles = StyleSheet.create({
   topo: { paddingTop: spacing.md },
+  faixaAviso: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: '#FEF3C7',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#FDE68A',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  faixaAvisoTexto: { ...type.small, color: '#92400E', flex: 1, lineHeight: 18 },
   tituloLista: {
     flexDirection: 'row',
     alignItems: 'center',

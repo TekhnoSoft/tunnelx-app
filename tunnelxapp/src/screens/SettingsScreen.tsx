@@ -12,6 +12,7 @@ import * as WireGuard from '../native/WireGuard';
 import {
   ArrowsClockwise,
   SignOut,
+  Receipt,
   ShieldCheck,
   FileZip,
   SquaresFour,
@@ -20,6 +21,7 @@ import {
   CaretRight,
 } from 'phosphor-react-native';
 import { syncConnections } from '../services/sync';
+import { cancelSubscription, fetchSubscription } from '../api/client';
 import type { SessionClient } from '../storage/session';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
@@ -83,6 +85,50 @@ export default function SettingsScreen({ client, onSignOut }: Props) {
     } catch (e: any) {
       Alert.alert('Falha ao sincronizar', e?.message || 'Erro desconhecido');
     }
+  };
+
+  /**
+   * Cancelar mantém o que já foi pago: no Asaas a assinatura vai para INACTIVE
+   * (para de gerar cobrança) e o acesso continua até o fim do período. Quem
+   * pagou o mês usa o mês — cortar no clique geraria pedido de estorno.
+   */
+  const onCancelarAssinatura = async () => {
+    let ate = '';
+    try {
+      const r = await fetchSubscription();
+      if (!r.subscription || r.subscription.cancel_at_period_end) {
+        Alert.alert('Assinatura', 'Você não tem uma assinatura ativa para cancelar.');
+        return;
+      }
+      if (r.subscription.current_period_end) {
+        ate = new Date(r.subscription.current_period_end).toLocaleDateString('pt-BR');
+      }
+    } catch (e: any) {
+      Alert.alert('Assinatura', e?.message || 'Não foi possível consultar sua assinatura.');
+      return;
+    }
+
+    Alert.alert(
+      'Cancelar assinatura',
+      ate
+        ? `Sua conexão continua funcionando até ${ate}. Depois disso o acesso é encerrado.`
+        : 'Sua assinatura será encerrada e o acesso será interrompido.',
+      [
+        { text: 'Manter assinatura', style: 'cancel' },
+        {
+          text: 'Cancelar assinatura',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const r = await cancelSubscription();
+              Alert.alert('Assinatura cancelada', r.message);
+            } catch (e: any) {
+              Alert.alert('Falha ao cancelar', e?.message || 'Tente novamente.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const onLogout = () => {
@@ -174,6 +220,12 @@ export default function SettingsScreen({ client, onSignOut }: Props) {
               title="Sincronizar minhas conexões"
               desc="Busca no servidor as conexões da sua conta e atualiza os túneis"
               onPress={onSync}
+            />
+            <Item
+              icon={<Receipt size={18} color={colors.textMuted} weight="duotone" />}
+              title="Cancelar assinatura"
+              desc="O acesso continua até o fim do período já pago"
+              onPress={onCancelarAssinatura}
             />
             <Item
               icon={<SignOut size={18} color={colors.danger} weight="duotone" />}

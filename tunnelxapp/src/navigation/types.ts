@@ -5,6 +5,9 @@ export type RootStackParamList = {
   Login: undefined;
   FirstAccess: undefined;
   NewPassword: undefined;
+  Plans: undefined;
+  Checkout: undefined;
+  Blocked: undefined;
   Home: { initialTunnels?: Tunnel[] } | undefined;
   TunnelDetail: { tunnel: Tunnel };
   TunnelForm: { tunnel?: Tunnel } | undefined;
