@@ -23,9 +23,12 @@ target 'tunnelxapp' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  # WireGuardKit for iOS (Network Extension)
-  pod 'WireGuardKit', :git => 'https://github.com/WireGuard/wireguard-apple.git', :branch => 'master'
-  pod 'WireGuardKitGo', :git => 'https://github.com/WireGuard/wireguard-apple.git', :branch => 'master'
+  # NOTE: WireGuardKit/WireGuardKitGo are intentionally NOT declared here.
+  # The app target only talks to the system NetworkExtension framework
+  # (NETunnelProviderManager), which needs no third-party pod. WireGuardKitGo
+  # additionally requires a Go toolchain to build. When the Packet Tunnel
+  # Provider extension target is added, declare WireGuardKit on *that* target
+  # only -- never on the app target.
 
   post_install do |installer|
     react_native_post_install(
@@ -34,5 +37,55 @@ target 'tunnelxapp' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # Alguns pods (e principalmente os *resource bundles* que eles geram) ainda
+    # declaram deployment target 12.4/13.4. O Xcode 27 so aceita de 15.0 para
+    # cima e transforma isso em erro de build. Normaliza todo mundo no minimo
+    # suportado pela versao do React Native em uso.
+    # -------------------------------------------------------------------
+    # fmt 11.0.2 (pinado por React-Core) nao compila com o clang do Xcode 26/27:
+    # o construtor consteval de `basic_format_string` usado por FMT_STRING passa
+    # a ser rejeitado ("call to consteval function ... is not a constant
+    # expression"). Corrigido upstream so no fmt 11.1, que nao da para adotar
+    # enquanto o React-Core exigir `fmt (= 11.0.2)`.
+    #
+    # O proprio fmt ja tem um caminho sem consteval para Apple clang antigo;
+    # aqui esse caminho passa a valer para qualquer Apple clang. Desliga apenas
+    # a checagem de formato em tempo de compilacao -- o comportamento em runtime
+    # e identico. Aplicado a TODAS as unidades de traducao, para nao criar
+    # divergencia de ODR entre pods.
+    fmt_base = File.join(installer.sandbox.root, 'fmt', 'include', 'fmt', 'base.h')
+    if File.exist?(fmt_base)
+      contents = File.read(fmt_base)
+      needle = "#elif defined(__apple_build_version__) && __apple_build_version__ < 14000029L\n" \
+               "#  define FMT_USE_CONSTEVAL 0  // consteval is broken in Apple clang < 14."
+      replacement = "#elif defined(__apple_build_version__)\n" \
+                    "#  define FMT_USE_CONSTEVAL 0  // patched: consteval + FMT_STRING quebra no clang do Xcode 26/27."
+      if contents.include?(needle)
+        # O CocoaPods instala as fontes dos pods somente-leitura (0444).
+        original_mode = File.stat(fmt_base).mode
+        File.chmod(0644, fmt_base)
+        File.write(fmt_base, contents.sub(needle, replacement))
+        File.chmod(original_mode & 0777, fmt_base)
+        Pod::UI.puts "[tunnelx] fmt/base.h: consteval desativado para Apple clang".green
+      end
+    end
+
+    min_target = min_ios_version_supported
+    projects = [installer.pods_project] + installer.generated_projects
+    projects.compact.uniq.each do |project|
+      project.build_configurations.each do |config|
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_target
+      end
+      project.targets.each do |target|
+        target.build_configurations.each do |config|
+          current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+          if current.nil? || Gem::Version.new(current) < Gem::Version.new(min_target)
+            config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_target
+          end
+        end
+      end
+      project.save
+    end
   end
 end
