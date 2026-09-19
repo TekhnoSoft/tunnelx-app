@@ -6,7 +6,6 @@ import {
   TextInput,
   Alert,
   KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { NativeModules } from 'react-native';
 import { FolderOpen, ClipboardText } from 'phosphor-react-native';
@@ -16,12 +15,13 @@ import * as WireGuard from '../native/WireGuard';
 import Screen from '../components/Screen';
 import Button from '../components/Button';
 import { colors, radius, spacing, type } from '../theme';
-import { useLayout } from '../theme/useLayout';
+import { useLayout, useKeyboardOverlap } from '../theme/useLayout';
 
 type Props = { navigation: any };
 
 export default function ConfImportScreen({ navigation }: Props) {
   const m = useLayout();
+  const tecladoCobre = useKeyboardOverlap();
   const [text, setText] = useState('');
   const [focado, setFocado] = useState(false);
 
@@ -98,14 +98,14 @@ export default function ConfImportScreen({ navigation }: Props) {
     // Tela sem scroll: o TextInput com flex:1 empurra os botoes para o rodape,
     // entao o inset vai no proprio container.
     <Screen>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      {/* Sem `behavior`: quem empurra o conteudo e o useKeyboardOverlap, que
+          mede a sobreposicao real. Com 'padding' no iOS os dois somariam e o
+          formulario subiria o dobro do necessario. */}
+      <KeyboardAvoidingView style={styles.flex}>
         <View
           style={[
             styles.container,
-            { paddingHorizontal: m.gutter, paddingTop: m.paddingTop, paddingBottom: m.paddingBottom },
+            { paddingHorizontal: m.gutter, paddingTop: m.paddingTop, paddingBottom: m.paddingBottom + tecladoCobre },
           ]}
         >
           <Text style={styles.titulo}>Importar configuração</Text>

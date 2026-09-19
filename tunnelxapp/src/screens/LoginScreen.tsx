@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Image,
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   useWindowDimensions,
 } from 'react-native';
@@ -20,6 +19,7 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import Field from '../components/Field';
 import { colors, metrics, radius, spacing, type } from '../theme';
+import { useKeyboardOverlap } from '../theme/useLayout';
 
 type Props = {
   onSigned: (client: SessionClient) => void;
@@ -36,6 +36,7 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAcces
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const m = metrics(width);
+  const tecladoCobre = useKeyboardOverlap();
   const [cpf, setCpf] = useState('');
   const [senha, setSenha] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -76,17 +77,17 @@ export default function LoginScreen({ onSigned, onNeedsNewPassword, onFirstAcces
 
   return (
     <Screen>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      {/* Sem `behavior`: quem empurra o conteudo e o useKeyboardOverlap, que
+          mede a sobreposicao real. Com 'padding' no iOS os dois somariam e o
+          formulario subiria o dobro do necessario. */}
+      <KeyboardAvoidingView style={styles.flex}>
         <ScrollView
           contentContainerStyle={[
             styles.content,
             {
               paddingHorizontal: m.gutter,
               paddingTop: insets.top + spacing.xxl,
-              paddingBottom: insets.bottom + spacing.xl,
+              paddingBottom: insets.bottom + spacing.xl + tecladoCobre,
             },
           ]}
           keyboardShouldPersistTaps="handled"

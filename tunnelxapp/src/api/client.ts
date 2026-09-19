@@ -256,3 +256,15 @@ export type PendingPayment = {
 export async function fetchPendingPayment(): Promise<PendingPayment> {
   return request<PendingPayment>('/app/subscription/payment');
 }
+
+/**
+ * QR de uma conexão específica.
+ *
+ * O QR é gerado pelo provisionador junto com o .conf e vem em
+ * /app/connections — não existe endpoint por id. Buscar a lista e filtrar é o
+ * caminho, e o custo é irrelevante: um cliente tem poucas conexões.
+ */
+export async function fetchConnectionQr(connectionId: number): Promise<ApiConnection | null> {
+  const todas = await fetchConnections();
+  return todas.find(c => c.id === connectionId) ?? null;
+}

@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Alert,
   KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import type { Tunnel, Peer } from '../models/Tunnel';
 import { upsertTunnel } from '../storage/tunnels';
@@ -19,12 +18,13 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import Field from '../components/Field';
 import { colors, radius, spacing, type } from '../theme';
-import { useLayout } from '../theme/useLayout';
+import { useLayout, useKeyboardOverlap } from '../theme/useLayout';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TunnelForm'>;
 
 export default function TunnelFormScreen({ navigation, route }: Props) {
   const m = useLayout();
+  const tecladoCobre = useKeyboardOverlap();
   const editing: Tunnel | undefined = route?.params?.tunnel;
   const [name, setName] = useState(editing?.name ?? '');
   const [privKey, setPrivKey] = useState(editing?.interface.privateKey ?? '');
@@ -61,15 +61,15 @@ export default function TunnelFormScreen({ navigation, route }: Props) {
 
   return (
     <Screen>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      {/* Sem `behavior`: quem empurra o conteudo e o useKeyboardOverlap, que
+          mede a sobreposicao real. Com 'padding' no iOS os dois somariam e o
+          formulario subiria o dobro do necessario. */}
+      <KeyboardAvoidingView style={styles.flex}>
         <ScrollView
           contentContainerStyle={{
             paddingHorizontal: m.gutter,
             paddingTop: m.paddingTop,
-            paddingBottom: m.paddingBottom,
+            paddingBottom: m.paddingBottom + tecladoCobre,
           }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}

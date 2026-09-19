@@ -8,7 +8,6 @@ import {
   Image,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform,
   Clipboard,
   useWindowDimensions,
 } from 'react-native';
@@ -25,6 +24,7 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import Field from '../components/Field';
 import { colors, metrics, radius, spacing, type } from '../theme';
+import { useKeyboardOverlap } from '../theme/useLayout';
 
 type Props = {
   plano: ApiPlan;
@@ -53,6 +53,7 @@ export default function CheckoutScreen({ plano, onVoltar, onAtivado }: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const m = metrics(width);
+  const tecladoCobre = useKeyboardOverlap();
 
   const [forma, setForma] = useState<Forma>('CREDIT_CARD');
   const [enviando, setEnviando] = useState(false);
@@ -150,7 +151,7 @@ export default function CheckoutScreen({ plano, onVoltar, onAtivado }: Props) {
         <ScrollView
           contentContainerStyle={[
             styles.content,
-            { paddingHorizontal: m.gutter, paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl },
+            { paddingHorizontal: m.gutter, paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl + tecladoCobre },
           ]}
           showsVerticalScrollIndicator={false}
         >
@@ -209,11 +210,14 @@ export default function CheckoutScreen({ plano, onVoltar, onAtivado }: Props) {
   // ---- Formulário --------------------------------------------------------
   return (
     <Screen>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {/* Sem `behavior`: quem empurra o conteudo e o useKeyboardOverlap, que
+          mede a sobreposicao real. Com 'padding' no iOS os dois somariam e o
+          formulario subiria o dobro do necessario. */}
+      <KeyboardAvoidingView style={styles.flex}>
         <ScrollView
           contentContainerStyle={[
             styles.content,
-            { paddingHorizontal: m.gutter, paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl },
+            { paddingHorizontal: m.gutter, paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl + tecladoCobre },
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
