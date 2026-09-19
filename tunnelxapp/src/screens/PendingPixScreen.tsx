@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { QrCode, Copy, Check, ArrowsClockwise } from 'phosphor-react-native';
-import { fetchSubscription, cancelSubscription, type PendingPix } from '../api/client';
+import { fetchSubscription, syncSubscription, cancelSubscription, type PendingPix } from '../api/client';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
 import Button from '../components/Button';
@@ -63,12 +63,20 @@ export default function PendingPixScreen({ pix, onLiberado, onDesistir }: Props)
     setTimeout(() => setCopiado(false), 2500);
   };
 
+  const [semConfirmacao, setSemConfirmacao] = useState<string | null>(null);
+
   const verificar = async () => {
     setVerificando(true);
+    setSemConfirmacao(null);
     try {
-      const r = await fetchSubscription();
+      // syncSubscription, e nao fetchSubscription: este pergunta ao ASAAS.
+      // Reler o banco so repetiria o que o webhook (que pode nao ter chegado)
+      // deixou la — era por isso que o botao parecia nao fazer nada.
+      const r = await syncSubscription();
       if (r.access.allowed) onLiberado();
-    } catch {
+      else setSemConfirmacao(r.message || 'Ainda não consta pagamento confirmado.');
+    } catch (e: any) {
+      setSemConfirmacao(e?.message || 'Não foi possível verificar agora.');
     } finally {
       setVerificando(false);
     }
@@ -143,6 +151,8 @@ export default function PendingPixScreen({ pix, onLiberado, onDesistir }: Props)
           ) : null}
         </Card>
 
+        {semConfirmacao ? <Text style={styles.semConfirmacao}>{semConfirmacao}</Text> : null}
+
         <Button
           label="Já paguei, verificar"
           onPress={verificar}
@@ -194,6 +204,13 @@ const styles = StyleSheet.create({
   },
   explica: { ...type.small, color: colors.textMuted, lineHeight: 20, marginBottom: spacing.lg },
   botao: { marginTop: spacing.lg },
+  semConfirmacao: {
+    ...type.small,
+    color: colors.warning,
+    textAlign: 'center',
+    marginTop: spacing.lg,
+    lineHeight: 19,
+  },
   desistir: { alignSelf: 'center', marginTop: spacing.lg, padding: spacing.sm },
   desistirTexto: { ...type.small, color: colors.textDim, fontWeight: '600' },
   rodape: {

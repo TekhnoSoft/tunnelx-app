@@ -15,6 +15,7 @@ import { WarningCircle, Copy, Check, ArrowsClockwise } from 'phosphor-react-nati
 import {
   fetchPendingPayment,
   fetchSubscription,
+  syncSubscription,
   type PendingPayment,
   type Access,
 } from '../api/client';
@@ -87,7 +88,8 @@ export default function BlockedScreen({ access, onLiberado, onVerPlanos, onSair 
   const verificarAgora = async () => {
     setVerificando(true);
     try {
-      const r = await fetchSubscription();
+      // Pergunta ao Asaas, nao ao banco: o webhook pode nao ter chegado.
+      const r = await syncSubscription();
       if (r.access.allowed) onLiberado();
       else await carregar();
     } catch {

@@ -16,6 +16,7 @@ import { ArrowLeft, CreditCard, QrCode, Copy, ShieldCheck, Check } from 'phospho
 import {
   subscribe,
   fetchSubscription,
+  syncSubscription,
   type ApiPlan,
   type SubscribeResult,
 } from '../api/client';
@@ -188,7 +189,14 @@ export default function CheckoutScreen({ plano, onVoltar, onAtivado }: Props) {
               <Button
                 label="Verificar agora"
                 variant="ghost"
-                onPress={comecarAChecar}
+                onPress={async () => {
+                  // Confere no Asaas antes de voltar a perguntar em laco.
+                  try {
+                    const r = await syncSubscription();
+                    if (r.access.allowed) return onAtivado();
+                  } catch {}
+                  comecarAChecar();
+                }}
                 style={styles.botaoVerificar}
               />
             ) : null}

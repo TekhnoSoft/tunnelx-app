@@ -250,6 +250,19 @@ export async function subscribe(
   });
 }
 
+/**
+ * "Já paguei": pede ao servidor que confira no Asaas, em vez de só reler o
+ * banco. O webhook pode não ter chegado — e sem este caminho o cliente fica
+ * pagando e sem acesso, dependendo de suporte.
+ */
+export async function syncSubscription(): Promise<{
+  access: Access;
+  changed: boolean;
+  message?: string;
+}> {
+  return request('/app/subscription/sync', { method: 'POST' });
+}
+
 export async function cancelSubscription(): Promise<{ message: string; current_period_end: string | null }> {
   return request('/app/subscription/cancel', { method: 'POST' });
 }
