@@ -3,20 +3,20 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		019E57BF1239D20FC181BFF1 /* FilePickerModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 130FBAC212AACCCEC758B57B /* FilePickerModule.m */; };
 		0C80B921A6F3F58F76C31292 /* libPods-tunnelxapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-tunnelxapp.a */; };
-		12CD8913235CAE02AFC2ECCF /* WireGuardModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 7313CA810869E9B384F0C9E6 /* WireGuardModule.m */; };
+		12CD8913235CAE02AFC2ECCF /* tunnelxapp/WireGuardModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 7313CA810869E9B384F0C9E6 /* tunnelxapp/WireGuardModule.m */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		36CFE333F1F203DC6FB61AEC /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A07CCDFF0A1F86688AC97F95 /* NetworkExtension.framework */; };
 		3BB775194EFC3B27D634309E /* FilePickerModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2556872E33461F5CDC294A39 /* FilePickerModule.swift */; };
 		3DC934DED1E0DEDC3F709C80 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3D46D7855DEF7DF69E3C29A5 /* Foundation.framework */; };
 		44D6BD355BCD2E1464EFF4B2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		5454FC93B0621EC09C37588B /* TunnelConfiguration+WgQuickConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C060A8C6F0E1C0F603634893 /* TunnelConfiguration+WgQuickConfig.swift */; };
-		73DC076EBB053DE3493DA4A0 /* WireGuardModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BB14ED10AAF87F9D33B75E /* WireGuardModule.swift */; };
+		73DC076EBB053DE3493DA4A0 /* tunnelxapp/WireGuardModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BB14ED10AAF87F9D33B75E /* tunnelxapp/WireGuardModule.swift */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		D21EB1ADBF8DF1EE00409724 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89B30E45235A6D1AA120A31 /* PacketTunnelProvider.swift */; };
@@ -61,8 +61,8 @@
 		5709B34CF0A7D63546082F79 /* Pods-tunnelxapp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-tunnelxapp.release.xcconfig"; path = "Target Support Files/Pods-tunnelxapp/Pods-tunnelxapp.release.xcconfig"; sourceTree = "<group>"; };
 		5AB9CAF4F984D9AEFD50D57C /* String+ArrayConversion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "String+ArrayConversion.swift"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-tunnelxapp.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-tunnelxapp.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		66BB14ED10AAF87F9D33B75E /* WireGuardModule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = tunnelxapp/WireGuardModule.swift; sourceTree = "<group>"; };
-		7313CA810869E9B384F0C9E6 /* WireGuardModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = tunnelxapp/WireGuardModule.m; sourceTree = "<group>"; };
+		66BB14ED10AAF87F9D33B75E /* tunnelxapp/WireGuardModule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = tunnelxapp/WireGuardModule.swift; sourceTree = "<group>"; };
+		7313CA810869E9B384F0C9E6 /* tunnelxapp/WireGuardModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = tunnelxapp/WireGuardModule.m; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = tunnelxapp/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = tunnelxapp/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A07CCDFF0A1F86688AC97F95 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/NetworkExtension.framework; sourceTree = DEVELOPER_DIR; };
@@ -102,8 +102,8 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
-				66BB14ED10AAF87F9D33B75E /* WireGuardModule.swift */,
-				7313CA810869E9B384F0C9E6 /* WireGuardModule.m */,
+				66BB14ED10AAF87F9D33B75E /* tunnelxapp/WireGuardModule.swift */,
+				7313CA810869E9B384F0C9E6 /* tunnelxapp/WireGuardModule.m */,
 				2556872E33461F5CDC294A39 /* FilePickerModule.swift */,
 				130FBAC212AACCCEC758B57B /* FilePickerModule.m */,
 			);
@@ -167,7 +167,6 @@
 				C060A8C6F0E1C0F603634893 /* TunnelConfiguration+WgQuickConfig.swift */,
 				5AB9CAF4F984D9AEFD50D57C /* String+ArrayConversion.swift */,
 			);
-			name = TunnelXVPN;
 			path = TunnelXVPN;
 			sourceTree = "<group>";
 		};
@@ -250,7 +249,7 @@
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
 			packageReferences = (
-				2060F3DE4594DDB7138B1CAD /* XCLocalSwiftPackageReference "wireguard-apple" */,
+				2060F3DE4594DDB7138B1CAD /* XCLocalSwiftPackageReference "vendor/wireguard-apple" */,
 			);
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
@@ -307,9 +306,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-tunnelxapp/Pods-tunnelxapp-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-tunnelxapp/Pods-tunnelxapp-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -365,9 +368,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-tunnelxapp/Pods-tunnelxapp-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-tunnelxapp/Pods-tunnelxapp-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -382,8 +389,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
-				73DC076EBB053DE3493DA4A0 /* WireGuardModule.swift in Sources */,
-				12CD8913235CAE02AFC2ECCF /* WireGuardModule.m in Sources */,
+				73DC076EBB053DE3493DA4A0 /* tunnelxapp/WireGuardModule.swift in Sources */,
+				12CD8913235CAE02AFC2ECCF /* tunnelxapp/WireGuardModule.m in Sources */,
 				3BB775194EFC3B27D634309E /* FilePickerModule.swift in Sources */,
 				019E57BF1239D20FC181BFF1 /* FilePickerModule.m in Sources */,
 			);
@@ -693,7 +700,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		2060F3DE4594DDB7138B1CAD /* XCLocalSwiftPackageReference "wireguard-apple" */ = {
+		2060F3DE4594DDB7138B1CAD /* XCLocalSwiftPackageReference "vendor/wireguard-apple" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "vendor/wireguard-apple";
 		};
