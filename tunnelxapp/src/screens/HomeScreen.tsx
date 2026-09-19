@@ -145,18 +145,6 @@ export default function HomeScreen({
     return parar;
   }, [onAcessoPerdido]);
 
-  /*
-   * A semente chega depois da montagem.
-   *
-   * `useState(initialTunnels)` só aproveita o valor no PRIMEIRO render. O sync
-   * do boot (App.tsx) roda em paralelo e só então chama `setInitialTunnels`:
-   * se a Home já tiver montado, esse resultado nunca entrava no estado e a
-   * lista ficava presa no array vazio inicial.
-   */
-  useEffect(() => {
-    if (initialTunnels.length) setTunnels(initialTunnels);
-  }, [initialTunnels]);
-
   // Recarrega ao focar a Home para refletir inclusões/edições/exclusões
   useFocusEffect(
     useCallback(() => {

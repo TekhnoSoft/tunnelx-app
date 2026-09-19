@@ -35,8 +35,6 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>O TunnelX usa a câmera para ler o QR Code de configuração do túnel WireGuard.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>O TunnelX usa a localizaçao para apontamentos aprimorado de nossos tuneis e servidores.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
