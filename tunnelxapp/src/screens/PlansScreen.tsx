@@ -191,7 +191,7 @@ function CartaoPlano({
         <View style={styles.numero}>
           <WifiHigh size={18} color={colors.primary} weight="duotone" />
           <Text style={styles.numeroValor}>{formatarDados(plano.dataLimit)}</Text>
-          <Text style={styles.numeroRotulo}>de dados</Text>
+          <Text style={styles.numeroRotulo}>de velocidade</Text>
         </View>
         <View style={styles.divisorVertical} />
         <View style={styles.numero}>
@@ -205,7 +205,7 @@ function CartaoPlano({
 
       <View style={styles.beneficios}>
         <Beneficio texto="Conexão protegida em todo o aparelho" />
-        <Beneficio texto="Sem limite de velocidade" />
+        <Beneficio texto="Sem limite de dados" />
         <Beneficio texto="Cancele quando quiser" />
         {plano.benefits.map((b, i) => (
           <Beneficio key={i} texto={b.descricao || b.tipo} equipamento />
