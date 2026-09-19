@@ -1,6 +1,7 @@
 import { AppState, type AppStateStatus } from 'react-native';
 import { fetchConnectionsState, ApiError } from '../api/client';
-import { syncConnections, clearSyncedTunnels } from './sync';
+import { syncConnections, clearSyncedTunnels, connectionIdOf, isSyncedTunnel } from './sync';
+import { loadTunnels } from '../storage/tunnels';
 import * as WireGuard from '../native/WireGuard';
 import type { Tunnel } from '../models/Tunnel';
 
@@ -79,14 +80,38 @@ export function watchAccess({ onEvento }: Opcoes): () => void {
 
       if (estado.revision === revisaoConhecida) return;
 
-      // Primeira consulta: só registra o ponto de partida. Sincronizar aqui
-      // repetiria o que a abertura do aplicativo acabou de fazer.
+      /*
+       * Primeira consulta: confere se o aparelho bate com o servidor.
+       *
+       * Antes ela só anotava a revisão e ia embora, supondo que a abertura do
+       * aplicativo já tinha sincronizado. Quando essa sincronização falhava —
+       * ou perdia a corrida contra a montagem da tela — o vigia CONFIRMAVA a
+       * lista errada: a revisão ficava registrada, as consultas seguintes não
+       * viam mudança nenhuma, e a Home continuava vazia indefinidamente.
+       *
+       * Comparar com o que está guardado custa uma leitura local e transforma o
+       * vigia em rede de segurança, em vez de mais um caminho por onde o erro
+       * passa despercebido.
+       */
       if (revisaoConhecida === null) {
         revisaoConhecida = estado.revision;
-        return;
-      }
 
-      revisaoConhecida = estado.revision;
+        const locais = new Set(
+          (await loadTunnels())
+            .filter((t) => isSyncedTunnel(t.id))
+            .map((t) => connectionIdOf(t.id))
+            .filter((id): id is number => id !== null)
+        );
+
+        const bate =
+          locais.size === estado.items.length &&
+          estado.items.every((i) => locais.has(i.id));
+
+        // Já está tudo no aparelho: não há o que baixar.
+        if (bate) return;
+      } else {
+        revisaoConhecida = estado.revision;
+      }
 
       // Algo mudou — agora sim vale baixar as configurações. É o `sync` que
       // remove o que o servidor não lista mais e derruba o túnel se estiver no ar.
