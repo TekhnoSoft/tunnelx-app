@@ -88,10 +88,32 @@ class WireGuardModule: RCTEventEmitter {
 
   // MARK: - Armazenamento da config
 
+  /// App Group compartilhado com o Packet Tunnel Provider. Precisa bater com o
+  /// valor nos entitlements dos dois alvos e com `PacketTunnelProvider.appGroup`.
+  private static let appGroup = "group.com.tunnelxapp"
+
+  /// Grava no App Group quando ele existe, e sempre tambem no padrao.
+  ///
+  /// A extensao roda em outro processo e nao enxerga o `UserDefaults.standard`
+  /// do app -- so o suite do App Group e comum aos dois. O fallback cobre o
+  /// periodo em que o App Group ainda nao foi provisionado no portal da Apple.
+  private static func defaultsStores() -> [UserDefaults] {
+    var stores = [UserDefaults.standard]
+    if let shared = UserDefaults(suiteName: appGroup) {
+      stores.insert(shared, at: 0)
+    }
+    return stores
+  }
+
   private func confKey(_ id: String) -> String { return "wg_\(id)_conf" }
 
   private func storedConf(for id: String) -> String? {
-    return UserDefaults.standard.string(forKey: confKey(id))
+    for store in Self.defaultsStores() {
+      if let conf = store.string(forKey: confKey(id)), !conf.isEmpty {
+        return conf
+      }
+    }
+    return nil
   }
 
   // MARK: - Metodos expostos ao JS
@@ -109,9 +131,10 @@ class WireGuardModule: RCTEventEmitter {
       return
     }
 
-    let defaults = UserDefaults.standard
-    defaults.set(conf, forKey: confKey(id))
-    defaults.set(name, forKey: "wg_\(id)_name")
+    for store in Self.defaultsStores() {
+      store.set(conf, forKey: confKey(id))
+      store.set(name, forKey: "wg_\(id)_name")
+    }
     currentTunnelId = id
     resolve(nil)
   }
@@ -151,7 +174,9 @@ class WireGuardModule: RCTEventEmitter {
 
       manager.protocolConfiguration = proto
       manager.localizedDescription =
-        UserDefaults.standard.string(forKey: "wg_\(id)_name") ?? "TunnelX"
+        Self.defaultsStores()
+          .compactMap { $0.string(forKey: "wg_\(id)_name") }
+          .first ?? "TunnelX"
       manager.isEnabled = true
 
       manager.saveToPreferences { saveError in
