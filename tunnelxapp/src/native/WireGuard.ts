@@ -172,3 +172,44 @@ export async function clearSessionGuard(): Promise<void> {
     console.warn('[WireGuard] clearSessionGuard falhou', e);
   }
 }
+
+/* =============================================================================
+   Saúde real do túnel
+
+   "Conectado" no aplicativo significa apenas que a interface TUN existe — e
+   ela continua existindo com o servidor fora do ar, com o IP do endpoint
+   trocado (o endpoint é um DDNS num link residencial, onde o IP muda em toda
+   renovação de PPPoE), ou com outro aparelho tendo tomado o endpoint do peer.
+
+   O handshake é o único sinal que separa um túnel vivo de um cano fechado.
+   ========================================================================== */
+
+/**
+ * Há quantos segundos foi o último handshake. `-1` = nunca houve.
+ *
+ * Um túnel recém-subido devolve -1 por alguns segundos: é normal, não sintoma.
+ */
+export async function getHandshakeAge(): Promise<number> {
+  try {
+    const v = await (NativeWireGuard as any)?.getHandshakeAge?.();
+    return typeof v === 'number' ? v : -1;
+  } catch {
+    return -1;
+  }
+}
+
+/**
+ * Derruba e sobe o túnel re-resolvendo o hostname do endpoint.
+ *
+ * O `.conf` guarda um NOME, resolvido uma única vez quando o túnel sobe.
+ * Quando o IP público do servidor muda, o aparelho segue mandando pacotes para
+ * o endereço velho até alguém reconectar — e é isso que o usuário vê como
+ * "conectado, sem internet". Reconectar re-parseia o arquivo, e aí o nome volta
+ * a ser consultado.
+ */
+export async function reconnect(): Promise<void> {
+  await (NativeWireGuard as any)?.reconnect?.();
+}
+
+/** Segundos sem handshake a partir dos quais o túnel é considerado mudo. */
+export const HANDSHAKE_MORTO_S = 180;

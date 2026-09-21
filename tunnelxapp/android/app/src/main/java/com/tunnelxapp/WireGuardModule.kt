@@ -94,6 +94,10 @@ class WireGuardModule(private val reactContext: ReactApplicationContext) :
       // Antes, GoBackend/WgTunnel eram criados aqui como variaveis locais e descartados
       // ao fim do metodo -- ninguem guardava referencia ao dono do TUN, e por isso o
       // desligamento nunca alcancava quem realmente segurava o descritor.
+      // O TEXTO do conf vai junto: reconectar precisa re-parsear para o DNS do
+      // endpoint ser resolvido de novo. Ver VpnManager.reconnectBlocking.
+      VpnManager.rememberConf(confText)
+
       VpnManager.submit {
         try {
           VpnManager.startBlocking(reactContext, id, cfg)
@@ -217,6 +221,48 @@ class WireGuardModule(private val reactContext: ReactApplicationContext) :
    * derrubada em outro aparelho deixaria este telefone tunelando ate alguem
    * reabrir o app. Ver SessionGuard.
    */
+  /**
+   * Ha quanto tempo foi o ultimo handshake, em segundos. -1 = nunca houve.
+   *
+   * "Conectado" no aplicativo significa hoje apenas que a interface TUN
+   * existe — e ela continua existindo com o servidor fora do ar, com o IP do
+   * endpoint trocado, ou com outro aparelho tendo roubado o endpoint do peer.
+   * O handshake e o unico sinal que separa um tunel vivo de um cano fechado.
+   */
+  @ReactMethod
+  fun getHandshakeAge(promise: Promise) {
+    try {
+      val quando = VpnManager.lastHandshakeMillis()
+      if (quando <= 0L) {
+        promise.resolve(-1.0)
+        return
+      }
+      promise.resolve(((System.currentTimeMillis() - quando) / 1000.0))
+    } catch (t: Throwable) {
+      promise.resolve(-1.0)
+    }
+  }
+
+  /**
+   * Derruba e sobe o tunel re-resolvendo o hostname do endpoint.
+   *
+   * Existe para o caso do DDNS: o endpoint do produto e um nome, resolvido
+   * UMA vez quando o tunel sobe. Quando o IP publico do servidor muda, o
+   * aparelho segue mandando UDP para o endereco velho ate alguem reconectar.
+   */
+  @ReactMethod
+  fun reconnect(promise: Promise) {
+    VpnManager.submit {
+      try {
+        VpnManager.reconnectBlocking(reactContext)
+        reactContext.runOnJSQueueThread { promise.resolve(null) }
+      } catch (e: Exception) {
+        Log.e(TAG, "reconnect falhou", e)
+        reactContext.runOnJSQueueThread { promise.reject("ERECONNECT", e.message) }
+      }
+    }
+  }
+
   @ReactMethod
   fun setSessionGuard(baseUrl: String?, token: String?, promise: Promise) {
     try {

@@ -34,6 +34,19 @@ object VpnManager {
   @Volatile private var tunnel: WgTunnel? = null
   @Volatile private var activeId: String? = null
 
+  /**
+   * O TEXTO do .conf do tunel ativo, nao o Config ja montado.
+   *
+   * Guardado como texto de proposito: reconectar exige RE-RESOLVER o
+   * hostname do Endpoint, e um objeto Config carrega o IP que foi resolvido
+   * uma vez, na primeira subida. O endpoint do produto e um DDNS
+   * (tunnelx.ddns.net) num link residencial, onde o IP publico muda em toda
+   * renovacao de PPPoE — rotina diaria ou semanal no Brasil. Reaplicar o
+   * Config antigo mandaria trafego para o IP velho indefinidamente, que e
+   * exatamente o sintoma de "conectado, sem internet".
+   */
+  @Volatile private var activeConfText: String? = null
+
   fun submit(task: () -> Unit) {
     io.execute(task)
   }
@@ -100,7 +113,20 @@ object VpnManager {
    * thread, com ou sem tunel ativo. O bloco finally e o que garante que o TUN morre
    * mesmo se a engine explodir ou se o setState for descartado pela lib.
    */
-  fun stopBlocking(ctx: Context) {
+  /**
+   * @param manterKeepAlive nao derruba o TunnelKeepAliveService.
+   *
+   * Serve a UM caso: a reconexao para re-resolver o DNS, que derruba e sobe o
+   * tunel de dentro do proprio servico. Sem isto acontecem duas coisas ruins:
+   *
+   *   1. O servico e destruido no meio da operacao, e com ele a thread do
+   *      watchdog que esta executando ESTA chamada.
+   *   2. O startBlocking seguinte tenta subir o servico de novo com
+   *      startForegroundService a partir do BACKGROUND — recusado desde o
+   *      Android 12 com ForegroundServiceStartNotAllowedException. O tunel
+   *      ficaria fora do ar justamente na tentativa de conserta-lo.
+   */
+  fun stopBlocking(ctx: Context, manterKeepAlive: Boolean = false) {
     val app = ctx.applicationContext
     try {
       val b = backend
@@ -128,7 +154,11 @@ object VpnManager {
         Log.w(TAG, "stopService(TunnelXVpnService) falhou", t)
       }
       // Sem tunel nao ha o que preservar: a notificacao permanente some junto.
-      TunnelKeepAliveService.stop(app)
+      if (!manterKeepAlive) {
+        TunnelKeepAliveService.stop(app)
+      } else {
+        Log.i(TAG, "stopBlocking: mantendo o keep-alive (reconexao em andamento)")
+      }
 
       activeId = null
       tunnel = null
@@ -152,4 +182,73 @@ object VpnManager {
   }
 
   fun activeTunnelId(): String? = activeId
+
+  /** Guarda o texto do .conf para poder reconectar re-resolvendo o DNS. */
+  fun rememberConf(text: String?) {
+    activeConfText = text
+  }
+
+  fun activeConf(): String? = activeConfText
+
+  /**
+   * Quando foi o ultimo handshake, em milissegundos desde a epoca.
+   *
+   * Zero significa "nunca" — inclusive quando o tunel acabou de subir e
+   * ainda nao trocou o primeiro handshake, entao quem chama precisa dar um
+   * tempo de graca antes de concluir que algo esta errado.
+   *
+   * Por que isto importa: hoje "conectado" no aplicativo significa apenas
+   * que a interface TUN existe. A interface continua de pe quando o servidor
+   * sumiu, quando o IP do endpoint mudou, ou quando outro aparelho roubou o
+   * endpoint do peer. O handshake e o unico sinal que distingue um tunel vivo
+   * de um cano fechado.
+   */
+  fun lastHandshakeMillis(): Long {
+    return try {
+      val b = backend ?: return 0L
+      val t = tunnel ?: return 0L
+      val stats = b.getStatistics(t) ?: return 0L
+      var maior = 0L
+      for (chave in stats.peers()) {
+        val p = stats.peer(chave) ?: continue
+        val quando = p.latestHandshakeEpochMillis()
+        if (quando > maior) maior = quando
+      }
+      maior
+    } catch (t: Throwable) {
+      Log.w(TAG, "lastHandshakeMillis falhou", t)
+      0L
+    }
+  }
+
+  /**
+   * Derruba e sobe de novo, re-parseando o .conf guardado.
+   *
+   * E o re-parse que resolve o DNS outra vez: `Config.parse` recria os
+   * Endpoint a partir do texto, e o hostname volta a ser consultado. Sem
+   * isso, reconectar reaplicaria o mesmo IP morto.
+   *
+   * Bloqueante. Chamar da thread de IO (VpnManager.submit) ou de um servico.
+   */
+  @Throws(Exception::class)
+  fun reconnectBlocking(ctx: Context) {
+    val id = activeId ?: throw IllegalStateException("nenhum tunel ativo")
+
+    // O texto em memoria e o caminho normal; o arquivo e a rede de seguranca
+    // para o caso de o servico ter sobrevivido a uma reciclagem do processo
+    // que levou o campo junto.
+    val texto = activeConfText
+      ?: java.io.File(ctx.applicationContext.filesDir, "wg/$id.conf")
+        .takeIf { it.exists() }?.readText()
+      ?: throw IllegalStateException("conf do tunel $id nao encontrado")
+
+    Log.i(TAG, "reconnectBlocking: derrubando $id para re-resolver o endpoint")
+    stopBlocking(ctx, manterKeepAlive = true)
+
+    val cfg = com.wireguard.config.Config.parse(
+      java.io.BufferedReader(java.io.StringReader(texto))
+    )
+    startBlocking(ctx, id, cfg)
+    Log.i(TAG, "reconnectBlocking: $id de volta com o endpoint re-resolvido")
+  }
 }

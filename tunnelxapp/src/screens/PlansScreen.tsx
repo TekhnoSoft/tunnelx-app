@@ -35,13 +35,21 @@ type Props = {
 };
 
 /** 1024 MB vira "1 GB" — ninguém lê pacote de dados em megabyte. */
-function formatarDados(mb: number): string {
-  if (!mb) return '—';
-  if (mb >= 1024) {
-    const gb = mb / 1024;
-    return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
+/**
+ * Velocidade do plano, em megabits por segundo.
+ *
+ * Antes esta funcao chamava-se formatarDados e escrevia "50 MB" embaixo do
+ * rotulo "de velocidade" — megabyte nao e unidade de velocidade, e o cliente
+ * lia uma coisa que nao existe. A divisao por 1024 tambem estava errada para
+ * taxa: acima de mil, a unidade e Gbps, e a conta e por mil, nao por 1024.
+ */
+function formatarVelocidade(mbps: number): string {
+  if (!mbps) return '—';
+  if (mbps >= 1000) {
+    const gbps = mbps / 1000;
+    return `${Number.isInteger(gbps) ? gbps : gbps.toFixed(1)} Gbps`;
   }
-  return `${mb} MB`;
+  return `${mbps} Mbps`;
 }
 
 function formatarPreco(v: number): string {
@@ -190,7 +198,7 @@ function CartaoPlano({
       <View style={styles.numeros}>
         <View style={styles.numero}>
           <WifiHigh size={18} color={colors.primary} weight="duotone" />
-          <Text style={styles.numeroValor}>{formatarDados(plano.dataLimit)}</Text>
+          <Text style={styles.numeroValor}>{formatarVelocidade(plano.dataLimit)}</Text>
           <Text style={styles.numeroRotulo}>de velocidade</Text>
         </View>
         <View style={styles.divisorVertical} />

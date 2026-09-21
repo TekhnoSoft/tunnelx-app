@@ -69,6 +69,22 @@ class TunnelKeepAliveService : android.app.Service() {
     private const val PREFIXO_DA_CONTA = "tunnelx_conn_"
 
     /**
+     * Sem handshake por este tempo, o tunel e considerado morto.
+     *
+     * O WireGuard renova o handshake a cada ~2 minutos quando ha trafego, e o
+     * PersistentKeepalive de 15s garante troca mesmo ocioso. Tres minutos sem
+     * nenhum handshake nao e silencio normal: ou o servidor sumiu, ou o IP do
+     * endpoint mudou, ou outro aparelho tomou o endpoint deste peer.
+     */
+    private const val HANDSHAKE_MORTO_MS = 180_000L
+
+    /** Espera depois de subir antes de cobrar o primeiro handshake. */
+    private const val GRACA_HANDSHAKE_MS = 45_000L
+
+    /** Teto de reconexoes automaticas seguidas antes de desistir. */
+    private const val MAX_RECONEXOES = 3
+
+    /**
      * Sobe o servico. Chamado com o tunel ja UP e a partir de uma acao do usuario
      * com o app em primeiro plano - startForegroundService a partir do background
      * e recusado desde o Android 12.
@@ -111,6 +127,12 @@ class TunnelKeepAliveService : android.app.Service() {
   @Volatile private var vigiando = false
   private var vigia: Thread? = null
 
+  /** Reconexoes automaticas seguidas sem que o handshake volte. */
+  @Volatile private var reconexoes = 0
+
+  /** Quando este servico subiu — base da graca do primeiro handshake. */
+  @Volatile private var subiuEm = 0L
+
   private fun iniciarVigia() {
     if (vigiando) return
     vigiando = true
@@ -136,6 +158,44 @@ class TunnelKeepAliveService : android.app.Service() {
           return@Thread
         }
 
+        // Antes da sessao: o tunel esta VIVO?
+        //
+        // Esta checagem e local e barata (le estatisticas do proprio backend),
+        // e cobre uma falha que a verificacao de sessao nao ve: o servidor
+        // trocou de IP publico e o aparelho segue mandando UDP para o
+        // endereco velho. A interface continua de pe, o aplicativo mostra
+        // "conectado", e nao passa um byte.
+        if (tunelMudo()) {
+          if (reconexoes >= MAX_RECONEXOES) {
+            Log.w(TAG, "vigia: $reconexoes reconexoes sem handshake, parando de tentar")
+          } else {
+            reconexoes++
+            Log.w(TAG, "vigia: sem handshake ha $HANDSHAKE_MORTO_MS ms, reconectando ($reconexoes/$MAX_RECONEXOES)")
+            try {
+              VpnManager.reconnectBlocking(applicationContext)
+            } catch (t: Throwable) {
+              /*
+               * A reconexao falhou e o usuario ficou SEM tunel.
+               *
+               * Quando o startBlocking falha, o teardown defensivo dele derruba
+               * tambem este servico — e com ele a notificacao permanente que
+               * dizia "TunnelX conectado". Sem avisar, o unico sinal seria a
+               * notificacao sumindo sozinha, que ninguem lê como "sua VPN caiu".
+               */
+              Log.e(TAG, "vigia: reconexao falhou", t)
+              avisarFalhaDeReconexao()
+              return@Thread
+            }
+            // Da tempo de o handshake novo acontecer antes de reavaliar.
+            try { Thread.sleep(GRACA_HANDSHAKE_MS) } catch (_: InterruptedException) { return@Thread }
+            continue
+          }
+        } else {
+          // Handshake fresco: o contador zera, senao tres quedas ao longo de
+          // um dia inteiro somariam e desligariam o watchdog para sempre.
+          reconexoes = 0
+        }
+
         when (SessionGuard.verificar(applicationContext)) {
           SessionGuard.Resultado.NEGADO -> {
             Log.w(TAG, "vigia: servidor negou o acesso, derrubando o tunel")
@@ -157,6 +217,25 @@ class TunnelKeepAliveService : android.app.Service() {
       isDaemon = true
       start()
     }
+  }
+
+  /**
+   * O tunel esta de pe mas sem trocar handshake ha tempo demais?
+   *
+   * `-1` (nunca houve handshake) so conta como mudo depois da graca inicial:
+   * um tunel recem-subido ainda nao trocou nada, e reconectar nesse momento
+   * criaria um laco de subir-e-derrubar.
+   */
+  private fun tunelMudo(): Boolean {
+    val quando = VpnManager.lastHandshakeMillis()
+
+    if (quando <= 0L) {
+      // Nunca houve handshake. So e sintoma se ja passou a graca desde que
+      // este servico subiu — e o servico sobe junto com o tunel.
+      return System.currentTimeMillis() - subiuEm > GRACA_HANDSHAKE_MS + HANDSHAKE_MORTO_MS
+    }
+
+    return System.currentTimeMillis() - quando > HANDSHAKE_MORTO_MS
   }
 
   private fun pararVigia() {
@@ -204,6 +283,39 @@ class TunnelKeepAliveService : android.app.Service() {
       } catch (t: Throwable) {
         Log.e(TAG, "falha ao derrubar o tunel apos negacao do servidor", t)
       }
+    }
+  }
+
+  /** Diz ao usuario que a VPN caiu e nao voltou sozinha. */
+  private fun avisarFalhaDeReconexao() {
+    try {
+      val nm = getSystemService(NotificationManager::class.java) ?: return
+      ensureChannel()
+      val abrirApp = PendingIntent.getActivity(
+        this,
+        3,
+        Intent(this, MainActivity::class.java),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+      )
+      nm.notify(
+        NOTIFICATION_ID_AVISO,
+        NotificationCompat.Builder(this, CHANNEL_ID)
+          .setSmallIcon(R.mipmap.ic_launcher)
+          .setContentTitle("VPN desconectada")
+          .setContentText("Nao foi possivel reconectar sozinho.")
+          .setStyle(
+            NotificationCompat.BigTextStyle().bigText(
+              "O tunel parou de responder e a reconexao automatica falhou. " +
+                "Abra o TunnelX e ligue a conexao de novo."
+            )
+          )
+          .setContentIntent(abrirApp)
+          .setAutoCancel(true)
+          .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+          .build()
+      )
+    } catch (t: Throwable) {
+      Log.w(TAG, "nao foi possivel avisar sobre a falha de reconexao", t)
     }
   }
 
@@ -256,7 +368,16 @@ class TunnelKeepAliveService : android.app.Service() {
           startForeground(NOTIFICATION_ID, buildNotification(nome))
           Log.i(TAG, "onStartCommand: foreground ativo, tunel=$nome")
           // A partir daqui o tunel sobrevive ao fechamento do app — e por isso
-          // mesmo passa a precisar de alguem conferindo se ainda e autorizado.
+          // mesmo passa a precisar de alguem conferindo se ainda e autorizado,
+          // e se ainda esta trocando handshake com o servidor.
+          // `iniciarVigia` ja retorna cedo se a thread existe — o
+          // startForegroundService do reconnect cai aqui de novo e nao deve
+          // criar um segundo watchdog nem zerar o contador de tentativas no
+          // meio de uma sequencia de reconexoes.
+          if (!vigiando) {
+            subiuEm = System.currentTimeMillis()
+            reconexoes = 0
+          }
           iniciarVigia()
         } catch (t: Throwable) {
           // Sem a notificacao nao ha protecao a oferecer - insistir deixaria um
